@@ -112,9 +112,10 @@ class WidgetRendererTest {
         // 系统按类名反射实例化 Provider，混淆或改名会直接导致小组件消失
         assertNotNull(UsageWidgetProvider())
         assertNotNull(CompactWidgetProvider())
+        // Kotlin 的 companion 不会被继承，常量定义在基类上
         assertEquals(
             "miui.appwidget.action.APPWIDGET_UPDATE",
-            UsageWidgetProvider.ACTION_MIUI_WIDGET_UPDATE,
+            BaseUsageWidgetProvider.ACTION_MIUI_WIDGET_UPDATE,
         )
     }
 
