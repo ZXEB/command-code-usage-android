@@ -102,6 +102,7 @@ fun GlassBottomBar(
         Color.White.copy(alpha = 0.78f)
     }
 
+    @Composable
     fun glass(shape: Shape): Modifier = glassSurface(backdrop, shape)
 
     // 每个导航项在胶囊坐标系里的位置，用于让选中胶囊滑动过去
@@ -248,7 +249,7 @@ private fun GlassNavItem(
         label = "navItemScale",
     )
     val pressScale by animateFloatAsState(
-        targetValue = if (interaction.collectIsPressedAsState()) 0.9f else 1f,
+        targetValue = if (interaction.collectIsPressedAsState().value) 0.9f else 1f,
         animationSpec = PressScaleSpring,
         label = "navItemPress",
     )
