@@ -15,8 +15,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawContent
-import androidx.compose.ui.graphics.drawscope.drawRect
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -48,13 +46,11 @@ fun CcUsageRoot() {
     var taps by remember { mutableIntStateOf(0) }
 
     val backgroundColor = MiuixTheme.colorScheme.background
-    val backdrop = rememberLayerBackdrop(
-        onDraw = {
-            // 先铺不透明底色：否则模糊会把透明像素的颜色扩散成色块
-            drawRect(backgroundColor)
-            drawContent()
-        },
-    )
+    val backdrop = rememberLayerBackdrop {
+        // 先铺不透明底色：否则模糊会把透明像素的颜色扩散成色块（miuix-blur 文档明确提示）
+        drawRect(backgroundColor)
+        drawContent()
+    }
 
     val items = remember {
         listOf(

@@ -4,11 +4,11 @@ package dev.zxeb.ccusage.model
  * 用户可见的错误。
  *
  * 原则（见 docs/QUOTA.md §6）：
- * - 不把 undici / OkHttp 的英文原文丢给用户；
+ * - 不把 OkHttp / undici 的英文原文丢给用户；
  * - 错误必须可读、可操作（告诉用户下一步做什么）；
  * - 绝不因为报错就编造或沿用旧数字。
  */
-sealed class UsageError(val message: String) : Exception(message) {
+sealed class UsageError(override val message: String) : Exception(message) {
 
     /** 没有配置 API Key。 */
     object MissingKey : UsageError("还没有配置 API Key，请到「设置」里填写后重试")

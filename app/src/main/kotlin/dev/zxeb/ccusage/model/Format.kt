@@ -35,9 +35,7 @@ object Format {
     /** 金额：`4.93` -> `"$4.93"`；`0.0017` -> `"$0.0017"`。 */
     fun usd(value: Double?): String {
         if (value == null) return UNKNOWN
-        val abs = kotlin.math.abs(value)
-        val text = if (abs < 0.01) "%.4f".format(value) else "%.2f".format(value)
-        return "$$text"
+        return "$" + amount(value)
     }
 
     /** 不带货币符号的金额数字。 */
