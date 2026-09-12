@@ -111,10 +111,13 @@ object Format {
         return "$days 天"
     }
 
-    /** 抓取耗时：`6s` / `1.2s` / `820ms`。 */
+    /** 抓取耗时：`6s` / `1.2s` / `820ms`（整秒不带小数，对齐官方 `耗时 6s` 的写法）。 */
     fun durationMs(ms: Long): String = when {
         ms < 1000 -> "${ms}ms"
-        ms < 10_000 -> "%.1fs".format(ms / 1000.0)
+        ms < 10_000 -> {
+            val seconds = ms / 1000.0
+            if (seconds % 1.0 == 0.0) "${seconds.toInt()}s" else "%.1fs".format(seconds)
+        }
         else -> "${ms / 1000}s"
     }
 
