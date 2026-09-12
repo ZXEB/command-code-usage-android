@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 澎湃 / 小米小部件 2×2（官方建议 110×110dp）。精简版视图。 -->
+<!-- 澎湃 / 小米小部件 2×2（官方建议 110×110dp）。精简版视图。
+     previewImage 的用途见 usage_widget_4x2.xml 顶部说明。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
     android:minHeight="110dp"
@@ -12,6 +13,7 @@
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_usage_2x2"
     android:previewLayout="@layout/widget_usage_2x2"
+    android:previewImage="@drawable/widget_preview_2x2"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/widget_description_compact" />

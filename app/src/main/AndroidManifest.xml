@@ -21,15 +21,6 @@
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="34">
 
-        <!--
-          小米小部件版本号（官方规范 §10）。
-          必须放在 <application> 下，而不是某个 provider 下；
-          小部件功能有变动就要 +1，否则有被下线风险。
-        -->
-        <meta-data
-            android:name="miuiWidgetVersion"
-            android:value="1" />
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -43,29 +34,44 @@
 
         <!--
           ============================ 4×2 小组件（主） ============================
-          逐条对齐小米《小部件技术规范与系统能力说明》与《小部件审核规范》：
-          - miuiWidget = true                    -> §4   小米小部件标识
-          - miuiWidgetRefresh = exposure         -> §2.1 曝光刷新（系统已去掉定时刷新）
-          - miuiWidgetRefreshMinInterval         -> §2.1 曝光刷新间隔（毫秒，最短 10s）
-          - miui.appwidget.action.APPWIDGET_UPDATE -> §2.2 曝光刷新广播
-          android:label 与 2×2 保持一致 -> §4 同功能不同尺寸会在详情页聚合
 
-          ⚠️ android:exported 必须是 true：
+          这里是**标准 Android 原生小部件**，不是「小米小部件」。
+
+          为什么去掉 miuiWidget 标识：依据小米《小部件提交审核与上传操作指南》
+          （dev.mi.com/xiaomihyperos/documentation/detail?pId=1588）——
+          「只有符合审核规范的小部件才会被【小部件中心】收录」，且必须先把 App
+          上架小米应用商店、再上传到 widget.xiaomi.com 并通过审核；
+          而「若仅适配安卓原生小部件则无需通过小米审核，可自行按照安卓规范适配」，
+          用户通过「安卓小部件」入口添加。
+
+          本应用是侧载分发（GitHub Actions 出包），不走小米应用商店、也不会去做
+          widget.xiaomi.com 登记。小米文档对「已登记小米小部件」和「原生小部件」给的是
+          两条并行路径：「若仅适配安卓原生小部件则无需通过小米审核」。既然不做登记，
+          就不该声明这些小米专有标识——它们只对登记过的小部件有意义。
+
+          ⚠️ 注意：此前曾把「声明 miuiWidget 导致原生入口也搜不到」当成根因，
+          但这一点**没有找到官方或社区实证**（小米文档只说两条路径并行，AOSP 的
+          Provider 枚举也不读 miuiWidget）。所以这里按「侧载只走原生路径」的正确
+          写法来声明，而不是声称它一定能解决搜不到的问题。若仍添加不了，
+          请走桌面「添加小部件 → 安卓小部件」入口确认。
+
+          android:label 两个尺寸保持一致，系统据此把同功能不同尺寸聚合展示。
+          label 用「用量小组件」（5 个汉字）：小米要求小部件名称 2–8 个汉字，
+          且不能与应用名相同（应用名是「CC 用量」）。
+
+          ⚠️ android:exported 保持 true：
           系统由 AppWidgetServiceImpl.updateProvidersForPackageLocked() 通过
-          queryIntentReceivers(ACTION_APPWIDGET_UPDATE) 枚举小组件，该方法只带
-          GET_META_DATA / MATCH_DEBUG_TRIAGED_MISSING 等标记，**不会带上未导出组件**。
-          设成 false 时 AppWidgetManager.getAppWidgetIds 仍能工作（读实例看似正常），
-          但桌面「添加小部件」列表根本解析不到这个应用。
-          这也是官方 appwidget 模板的写法。
+          queryIntentReceivers(ACTION_APPWIDGET_UPDATE) 枚举小组件。
+          exported=true 是官方 appwidget 模板与各大桌面的稳妥写法，
+          同时不影响任何安全边界（该 receiver 只处理系统广播）。
 
-          ⚠️ 关于 android:process=":widgetProvider"：
-          小米规范 §1.3 确实要求小组件使用 :widgetProvider 独立进程，但**审核规范
-          第五节同时要求该进程内存 ≤40M**。我们的小组件 RemoteViews 布局里含
-          ProgressBar / Layer-List drawable，渲染线程在部分 HyperOS 版本上会在
-          独立进程里因内存压力拿不到足够的图形缓冲，表现为卡片空白或干脆不显示。
-          权衡后**不设置 process**，让小组件跑在默认（主）进程：
-          本应用的渲染链路只读 SharedPreferences，内存占用极小，稳定性优先。
-          如果日后要上架小米小部件中心，再按 §1.3 开启并单独压测内存。
+          ⚠️ 不设置 android:process=":widgetProvider"：
+          小米规范 §1.3 要求（仅针对上架小米小部件中心的场景）。本项目不上架，
+          而独立进程会带来实际风险：WorkManager / 各 androidx.startup initializer
+          默认只在主进程初始化，把小组件挪进 :widgetProvider 后
+          `WorkManager.getInstance()` 会抛 "WorkManager is not initialized properly"，
+          设置页的「添加到桌面」按钮会直接崩掉（表现正是"点了没反应"）。
+          小组件渲染链路只读 SharedPreferences、不联网，跑在主进程开销极小。
         -->
         <receiver
             android:name=".widget.UsageWidgetProvider"
@@ -74,17 +80,10 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/usage_widget_4x2" />
-            <meta-data
-                android:name="miuiWidget"
-                android:value="true" />
-            <meta-data
-                android:name="miuiWidgetRefresh"
-                android:value="exposure" />
-            <meta-data
-                android:name="miuiWidgetRefreshMinInterval"
-                android:value="60000" />
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <!-- 澎湃桌面可能推送曝光刷新广播；声明它不会有害，
+                     收到时顺手重绘一次（刷新路径多一条），见 BaseUsageWidgetProvider.onReceive -->
                 <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
         </receiver>
@@ -97,15 +96,6 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/usage_widget_2x2" />
-            <meta-data
-                android:name="miuiWidget"
-                android:value="true" />
-            <meta-data
-                android:name="miuiWidgetRefresh"
-                android:value="exposure" />
-            <meta-data
-                android:name="miuiWidgetRefreshMinInterval"
-                android:value="60000" />
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />

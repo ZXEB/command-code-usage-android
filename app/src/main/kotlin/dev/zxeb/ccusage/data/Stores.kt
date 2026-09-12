@@ -18,10 +18,9 @@ import java.time.Instant
 /**
  * 本地持久化。
  *
- * 用 [SharedPreferences] 而不是数据库，理由有二：
- * 1. 数据量极小（一份快照 + 几个设置项），DB 是过度设计；
- * 2. **小组件跑在 `:widgetProvider` 独立进程**（小米规范强制要求），读 DB 要额外处理
- *    跨进程一致性，而 SharedPreferences 在 MODE_PRIVATE 下跨进程读取的开销和复杂度都低得多。
+ * 用 [SharedPreferences] 而不是数据库：数据量极小（一份快照 + 几个设置项），
+ * DB 属于过度设计；而 SharedPreferences 读写同步、无额外线程要求，
+ * 桌面小组件在被系统回调重绘时可以放心直接读。
  *
  * 安全说明：API Key 只存在本机 MODE_PRIVATE 的 SharedPreferences 里，已通过
  * `backup_rules.xml` / `data_extraction_rules.xml` 排除出云备份与设备迁移。
@@ -85,7 +84,7 @@ class SettingsStore(context: Context) {
  * 快照缓存。
  *
  * 存最后一次成功的抓取结果，供两个地方使用：
- * 1. 小组件渲染（小组件进程不能做网络请求的兜底展示）；
+ * 1. 小组件渲染（小组件回调里不能联网，只能拿缓存兜底展示）；
  * 2. 刷新失败时向用户明确标注「这是 X 时刻的旧数据」。
  */
 class SnapshotStore(context: Context) {

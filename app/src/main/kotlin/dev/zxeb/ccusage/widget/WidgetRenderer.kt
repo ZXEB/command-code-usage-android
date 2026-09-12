@@ -22,9 +22,9 @@ import java.time.Instant
 /**
  * 小组件渲染器。
  *
- * **只读 `SharedPreferences`，不发网络请求、不碰 Compose** —— 因为小组件跑在
- * `:widgetProvider` 独立进程里，小米规范要求该进程内存 ≤35M、只做「内容准备和刷新」。
- * 网络刷新交给 [WidgetRefreshWorker]，它同样声明在 `:widgetProvider` 进程。
+ * **只读 `SharedPreferences`，不发网络请求、不碰 Compose** —— 渲染必须足够轻。
+ * 网络刷新交给 [WidgetRefreshWorker]。小组件与本应用同属主进程
+ * （不设 `:widgetProvider`，原因见 AndroidManifest），这里更要避免做重活。
  */
 object WidgetRenderer {
 
@@ -207,13 +207,13 @@ object WidgetRenderer {
 /**
  * 小组件通用行为。
  *
- * 关键适配：小米小部件**去掉了系统原有的定时刷新**，改为「曝光刷新」——
- * 用户滑到有 Widget 的桌面页时，系统发 `miui.appwidget.action.APPWIDGET_UPDATE`。
- * 因此 [onReceive] 必须显式处理这个 action（小米规范 §2.2）。
- *
  * **渲染与联网严格分离**：每次回调第一件事都是「用缓存立刻重绘」，保证任何情况下桌面
  * 都不会空白；联网刷新另有 [WidgetRefreshWorker] 负责。这样即使网络很慢或超时，
  * 小组件也始终有话可显示。
+ *
+ * [onReceive] 仍兼容小米的曝光刷新广播：虽然本应用声明的是标准原生小部件，
+ * 但澎湃桌面若推送 `miui.appwidget.action.APPWIDGET_UPDATE` 过来，
+ * 顺手响应一次没有坏处（多一条刷新路径而已）。
  */
 abstract class BaseUsageWidgetProvider : AppWidgetProvider() {
 

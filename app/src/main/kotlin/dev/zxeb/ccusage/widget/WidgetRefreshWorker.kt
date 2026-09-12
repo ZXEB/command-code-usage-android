@@ -20,16 +20,14 @@ import java.util.concurrent.TimeUnit
 /**
  * 小组件的后台联网刷新。
  *
- * 为什么必须有它：小米小部件**去掉了系统原有的定时刷新**（规范 §2.1），只保留曝光刷新。
- * 用户不划到那一页就不会有新数据，所以需要一条兜底路径：
+ * 原生小部件本身不会自动拉数据（`updatePeriodMillis` 设为 0），所以需要：
  * - **周期任务**：最短 15 分钟（WorkManager 下限），跟随设置里的自动刷新间隔；
- * - **一次性任务**：曝光刷新或点击刷新时立即触发。
+ * - **一次性任务**：用户点刷新、或桌面推送更新广播时触发。
  *
  * 职责边界（很重要）：**只有这个 Worker 联网**。它拿到数据后写缓存，然后调
  * [WidgetRenderer.updateAll] 重绘 —— 刷新的联网部分与绘制部分是分开的。
  *
- * 这个 Worker 声明在 `:widgetProvider` 进程（见 AndroidManifest），符合小米规范
- * §1「Widget 进程只能运行 Widget 内容准备和刷新相关的逻辑」。
+ * Worker 与应用同在主进程（小组件也未使用独立进程，原因见 AndroidManifest）。
  */
 class WidgetRefreshWorker(
     context: Context,

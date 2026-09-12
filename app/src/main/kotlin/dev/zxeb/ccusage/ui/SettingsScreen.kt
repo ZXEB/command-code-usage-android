@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.os.Build
+import android.os.Bundle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -141,8 +142,8 @@ fun SettingsScreen(
                     },
                 )
                 Text(
-                    text = "小米小部件已去掉系统定时刷新，桌面小组件依赖「曝光刷新」" +
-                        "（滑到该页时触发）。这里的周期刷新是兜底路径，最短 15 分钟。",
+                    text = "桌面小组件的后台刷新间隔，最短 15 分钟（系统对周期任务的下限）。" +
+                        "打开应用时会按这里的设置重新登记一次。",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -180,7 +181,9 @@ fun SettingsScreen(
                 // pin 在部分 HyperOS 版本上不可用，给出手动路径作为兜底
                 Text(
                     text = "如果上面没有反应：长按桌面空白处 → 添加小部件 → " +
-                        "搜索「Command Code 用量」。安装后系统刷新小组件列表可能需要一点时间。",
+                        "（切到「安卓小部件」分类）搜索「用量小组件」。\n" +
+                        "本应用未上架小米应用商店，属于安卓原生小部件，只会出现在" +
+                        "「安卓小部件」入口下。",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -289,51 +292,52 @@ private fun WidgetStateRow(context: Context, refreshKey: Int) {
 /**
  * 请求把小组件 pin 到桌面。
  *
- * 之前这里「点了没反应」，原因是把所有失败路径都静默吞掉了。按 AOSP
- * `AppWidgetServiceImpl.requestPinAppWidget()` 的实现，失败会**返回 false 而不抛异常**，
- * 常见原因有三类，现在逐条区分并给出可操作提示：
+ * 按小米《小部件技术规范》§四.1，`requestPinAppWidget` 必须通过 extras 带两个键，
+ * 才会调起**小米小部件详情页**（否则在部分澎湃机型上就是"点了没反应"）：
+ * - `addType`    = `appWidgetDetail`
+ * - `widgetName` = `"包名/receiver全类名"`
+ * 文档原文："不支持小米Widget 的手机调用 requestPinAppWidget 方法不会调起 Widget 商店里的详情页。"
  *
- * 1. `!isRequestPinAppWidgetSupported` —— 桌面自身不支持 pin（部分 HyperOS 版本如此）；
- * 2. `lookupProviderLocked(...) == null` —— 系统还没把本应用的小组件登记进列表
- *    （安装后需要一点时间，或需要重启桌面进程）；
- * 3. `widgetCategory` 不含 HOME_SCREEN —— 配置写错了（本项目的 XML 已显式声明）。
+ * 失败路径逐条区分并给出可操作提示，原因包括：
+ * 1. `!isRequestPinAppWidgetSupported` —— 桌面没实现原生 pin（部分 HyperOS 版本如此）；
+ * 2. `lookupProviderLocked(...) == null` —— 系统还没登记本应用的小组件；
+ * 3. `widgetCategory` 不含 HOME_SCREEN —— 配置写错（本项目 XML 已显式声明）。
  *
- * 注意：pin 失败**不等于**小组件不可用 —— 用户仍然可以长按桌面 →「添加小部件」手动添加。
- * 所以失败时要把这条退路明确告诉用户，而不是什么都不显示。
+ * 注意：pin 失败**不等于**小组件不可用 —— 用户仍可长按桌面 →「添加小部件」手动添加，
+ * 所以失败时要把这条退路明确告诉用户。
  */
 private fun requestPinWidget(context: Context, onResult: (String) -> Unit) {
+    val provider = ComponentName(context, UsageWidgetProvider::class.java)
+    val manualHint = "请长按桌面空白处 → 添加小部件 → 搜索「用量小组件」"
+
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-        onResult("当前系统版本不支持一键添加，请长按桌面 → 添加小部件")
+        onResult("当前系统版本不支持一键添加。$manualHint")
         return
     }
     val manager = AppWidgetManager.getInstance(context)
     if (manager == null) {
-        onResult("系统服务不可用，请长按桌面 → 添加小部件")
+        onResult("系统服务不可用。$manualHint")
         return
     }
     if (!manager.isRequestPinAppWidgetSupported) {
-        onResult(
-            "当前桌面不支持一键添加。请长按桌面空白处 → 添加小部件 → " +
-                "搜索「Command Code 用量」",
-        )
+        onResult("当前桌面不支持一键添加。$manualHint")
         return
     }
 
+    // 小米专有 extras（规范 §四.1）：不带的话只会走原生 pin，不会打开小米详情页
+    val extras = Bundle().apply {
+        putString("addType", "appWidgetDetail")
+        putString("widgetName", "${context.packageName}/${UsageWidgetProvider::class.java.name}")
+    }
+
     val requested = runCatching {
-        manager.requestPinAppWidget(
-            ComponentName(context, UsageWidgetProvider::class.java),
-            null,
-            null,
-        )
+        manager.requestPinAppWidget(provider, extras, null)
     }.getOrElse { false }
 
     if (requested) {
         onResult("已发起添加请求，请在弹出的确认框里点「添加」")
     } else {
         // 走到这里说明系统登记还没完成（或桌面拒绝），给出确定可行的退路
-        onResult(
-            "系统暂时没能拉起添加流程（小组件列表可能还没刷新）。" +
-                "请长按桌面空白处 → 添加小部件 → 搜索「Command Code 用量」",
-        )
+        onResult("系统暂时没能拉起添加流程（小组件列表可能还没刷新）。$manualHint")
     }
 }

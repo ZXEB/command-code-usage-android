@@ -2,8 +2,12 @@
 <resources>
     <string name="app_name">CC 用量</string>
 
-    <!-- 两个尺寸共用同一个 label，澎湃详情页会据此把同功能的不同尺寸聚合在一起 -->
-    <string name="widget_label">Command Code 用量</string>
+    <!--
+      两个尺寸共用同一个 label，澎湃详情页会据此把同功能的不同尺寸聚合在一起。
+      小米官方要求小部件名称为 2–8 个汉字，且不能与应用名（CC 用量）相同。
+      「用量小组件」= 5 个汉字，合规。
+    -->
+    <string name="widget_label">用量小组件</string>
     <string name="widget_description">显示套餐剩余额度与本计费周期 token</string>
     <string name="widget_description_compact">精简显示剩余额度与本计费周期 token</string>
 
@@ -20,4 +24,5 @@
     <string name="tab_detail">明细</string>
     <string name="tab_settings">设置</string>
     <string name="action_refresh">刷新</string>
+    <string name="action_more">更多</string>
 </resources>

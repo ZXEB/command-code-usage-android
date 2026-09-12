@@ -1,12 +1,14 @@
 package dev.zxeb.ccusage.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,11 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -110,17 +111,25 @@ fun GlassTopButton(
 
 // ---------------- 锚点展开菜单 ----------------
 
-private val MENU_SHAPE = RoundedCornerShape(18.dp)
-private val MENU_ITEM_HEIGHT = 42.dp
+/** 大圆角卡片：对齐澎湃 4 弹出的菜单观感（比普通卡片圆角更大）。 */
+private val MENU_SHAPE = RoundedCornerShape(24.dp)
+
+/** 行高给足。参考澎湃 4 的菜单，条目之间留白明显，不能挤在一起。 */
+private val MENU_ITEM_HEIGHT = 52.dp
+
+private val MENU_WIDTH = 200.dp
 
 /**
- * HyperOS 风格的锚点弹出菜单：从触发按钮的右上角缩放展开，
- * 圆角卡片，收起时反向缩回。
+ * 澎湃 4 风格的锚点弹出菜单。
  *
- * 必须放在触发按钮的同一父 Box 内 —— Popup 的 alignment=TopEnd + 向下偏移
- * 使它恰好出现在按钮下方右对齐的位置。
+ * 形态对齐参考：**一张大圆角卡片，条目大字距、行高宽松、左对齐**，
+ * 从触发按钮的右上角缩放展开，收起时反向缩回。
  *
- * @param anchorBounds 触发按钮在窗口坐标系中的 bounds（由 onGloballyPositioned 提供的状态）。
+ * 展开/收起动画用 [MutableTransitionState] 驱动 [AnimatedVisibility]：
+ * 关键点是**退场期间不能把 Popup 从组合里摘掉**，否则收起动画没有机会播放
+ * （之前写成 `if (!expanded) return`，所以只有出现动画、没有消失动画）。
+ *
+ * @param anchorBounds 触发按钮在窗口坐标系中的 bounds。
  */
 @Composable
 fun HyperMenu(
@@ -130,15 +139,19 @@ fun HyperMenu(
     items: List<String>,
     onItemClick: (Int) -> Unit,
 ) {
-    if (!expanded) return
     anchorBounds ?: return
+
+    // 动画期间保持挂载：targetState 立刻跟随 expanded，currentState 要等动画结束才更新
+    val visibleState = remember { MutableTransitionState(false) }
+    visibleState.targetState = expanded
+    // 完全不可见且不需要出现时才不渲染（此时退场动画已经播完）
+    if (!visibleState.currentState && !visibleState.targetState) return
 
     val density = LocalDensity.current
     Popup(
         alignment = Alignment.TopEnd,
-        // HyperMenu 放在根 Box（铺满窗口）里，父布局原点即窗口原点：
-        // y 用锚点按钮的窗口 bottom 直接算向下偏移（按钮正下方），
-        // x 留出与按钮行一致的右缘边距
+        // 父布局铺满窗口，原点即窗口原点：y 取锚点按钮底部再向下留一点，
+        // x 与顶栏按钮行同一条右缘边距
         offset = IntOffset(
             x = -with(density) { 16.dp.roundToPx() },
             y = anchorBounds.bottom.toInt() + 12,
@@ -146,45 +159,51 @@ fun HyperMenu(
         properties = PopupProperties(focusable = true, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
     ) {
-        val enter = expandIn(
-            expandFrom = Alignment.TopEnd,
-            animationSpec = spring(dampingRatio = 0.78f, stiffness = 620f),
-        ) + fadeIn(tween(120))
-        val exit = shrinkOut(
-            shrinkTowards = Alignment.TopEnd,
-            animationSpec = tween(160),
-        ) + fadeOut(tween(140))
-
-        Column(
-            modifier = Modifier
-                .width(160.dp)
-                .clip(MENU_SHAPE)
-                .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.97f))
-                .border(0.5.dp, glassHairline(), MENU_SHAPE)
-                .padding(vertical = 4.dp),
+        AnimatedVisibility(
+            visibleState = visibleState,
+            enter = scaleIn(
+                animationSpec = spring(dampingRatio = 0.82f, stiffness = 700f),
+                transformOrigin = TransformOrigin(1f, 0f),
+                initialScale = 0.82f,
+            ) + fadeIn(tween(110)),
+            exit = scaleOut(
+                animationSpec = tween(170),
+                transformOrigin = TransformOrigin(1f, 0f),
+                targetScale = 0.88f,
+            ) + fadeOut(tween(150)),
         ) {
-            items.forEachIndexed { index, label ->
-                val itemInteraction = remember { MutableInteractionSource() }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(MENU_ITEM_HEIGHT)
-                        .pressScale(itemInteraction, pressedScale = 0.97f)
-                        .clickable(
-                            interactionSource = itemInteraction,
-                            indication = null,
-                        ) {
-                            onItemClick(index)
-                            onDismiss()
-                        }
-                        .padding(horizontal = 18.dp),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Text(
-                        text = label,
-                        style = MiuixTheme.textStyles.main,
-                        color = MiuixTheme.colorScheme.onSurface,
-                    )
+            Column(
+                modifier = Modifier
+                    .width(MENU_WIDTH)
+                    .shadow(12.dp, MENU_SHAPE)
+                    .clip(MENU_SHAPE)
+                    .background(MiuixTheme.colorScheme.surface)
+                    .border(0.5.dp, glassHairline(), MENU_SHAPE)
+                    .padding(vertical = 8.dp),
+            ) {
+                items.forEachIndexed { index, label ->
+                    val itemInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(MENU_ITEM_HEIGHT)
+                            .pressScale(itemInteraction, pressedScale = 0.97f)
+                            .clickable(
+                                interactionSource = itemInteraction,
+                                indication = null,
+                            ) {
+                                onItemClick(index)
+                                onDismiss()
+                            }
+                            .padding(horizontal = 24.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            text = label,
+                            style = MiuixTheme.textStyles.subtitle,
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
         }

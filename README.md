@@ -1,7 +1,7 @@
 # Command Code 用量统计 · Android
 
 澎湃风格（HyperOS）的 Command Code 用量客户端。用 [Miuix](https://github.com/compose-miuix-ui/miuix) 组件库构建，
-底栏是液态玻璃质感，并附带**澎湃原生小部件**（4×2 与 2×2）。
+底栏是液态玻璃质感，并附带**原生桌面小部件**（4×2 与 2×2）。
 
 > 数据全部来自 Command Code **官方账单接口**的只读 GET 请求，不消耗额度、不修改服务端任何状态。
 
@@ -14,7 +14,7 @@
 | 套餐额度 | 套餐名、订阅状态、标称额度、剩余 / 总额度池、已用百分比 |
 | 三个用量窗口 | 5 小时 / 每周 / 每月，各带进度条、剩余额度、重置倒计时 |
 | 本计费周期 tokens | 以 **M（百万）** 显示，并拆分输入 / 输出、请求次数、均次成本 |
-| 桌面小部件 | 4×2（完整）与 2×2（精简）两种尺寸，澎湃原生小部件 |
+| 桌面小部件 | 4×2（完整）与 2×2（精简）两种尺寸，标准 Android 原生小部件 |
 | 液态玻璃底栏 | 实时模糊 + 玻璃折射 + 边缘高光；不支持时自动降级 |
 | 明暗主题 | 跟随系统，使用 Monet 动态取色 |
 
@@ -60,28 +60,42 @@
 
 ---
 
-## 澎湃小部件适配
+## 桌面小部件
 
-严格按小米官方《小部件技术规范与系统能力说明》实现：
+这是**标准 Android 原生小部件**（AppWidget），不是上架小米应用商店的「小米小部件」。
 
-| 规范 | 实现 |
+依据小米《小部件提交审核与上传操作指南》
+（[pId=1588](https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1588)）：
+「若仅适配安卓原生小部件则无需通过小米审核，可自行按照安卓规范适配」，
+用户通过桌面添加小部件页的**「安卓小部件」入口**添加。而
+「只有符合审核规范的小部件才会被【小部件中心】收录」——收录的前提是 App 上架
+小米应用商店并上传到 [widget.xiaomi.com](https://widget.xiaomi.com/) 审核通过。
+
+本应用走 GitHub Actions 侧载分发，不做小米上架，因此：
+
+- **不声明** `miuiWidget` / `miuiWidgetVersion` / `miuiWidgetRefresh*` 这些小米专有
+  meta-data。它们只对已在小米平台登记的小部件有意义；声明了反而会让桌面按
+  「小米小部件」处理，而它又不在小部件中心里。
+- 保留标准 `android.appwidget.action.APPWIDGET_UPDATE` 与
+  `android.appwidget.provider` 配置，这是原生小部件被系统枚举的必要条件。
+
+| 项 | 实现 |
 |---|---|
-| §1.3 独立进程 | `android:process=":widgetProvider"`；渲染只读 `SharedPreferences`，不发网络、不碰 Compose |
-| §2.1 曝光刷新 | `miuiWidgetRefresh="exposure"` + `miuiWidgetRefreshMinInterval="60000"` |
-| §2.2 曝光广播 | `onReceive` 显式处理 `miui.appwidget.action.APPWIDGET_UPDATE` |
-| §3 尺寸 | 4×2 = `300×110dp`，2×2 = `110×110dp` |
-| §4 小米标识 / 聚合 | `miuiWidget="true"`；两个尺寸共用 `android:label`，详情页自动聚合 |
-| §7.1 圆角 | 根布局 `android:id="@android:id/background"` + 不透明背景色 |
-| §8 布局兼容 | 根布局 `match_parent`、内容居中、无绝对尺寸 |
-| §9 清数据 | 无数据时渲染引导视图，不空白、不崩溃 |
-| §10 版本号 | `<application>` 下声明 `miuiWidgetVersion` |
+| 尺寸 | 4×2 = `300×110dp`，2×2 = `110×110dp`（对齐小米建议尺寸表） |
+| 预览 | `previewLayout`（Android 12+ 优先）+ `previewImage`（旧桌面回退）都给 |
+| 圆角 | 根布局 `android:id="@android:id/background"` + 不透明背景 |
+| 布局兼容 | 根布局 `match_parent`、内容居中、无绝对尺寸 |
+| 清数据 | 无数据时渲染引导视图，不空白、不崩溃 |
+| 名称 | `android:label="用量小组件"`（小米要求 2–8 汉字、且区别于应用名） |
+| 混淆 | ProGuard 保留 `dev.zxeb.ccusage.widget.**`（系统按类名反射实例化） |
+| 进程 | 跑在主进程（不设 `:widgetProvider`）：避免 WorkManager 在独立进程未初始化而崩 |
 
 ### 刷新机制
 
-小米小部件**去掉了系统原有的定时刷新**，改为「曝光刷新」。所以刷新由三条路径组成：
+`updatePeriodMillis = 0`（系统定时刷新会大幅增加耗电，此处关闭），刷新由三条路径组成：
 
-1. **曝光刷新**：用户滑到有小组件的桌面页时系统触发；
-2. **周期兜底**：`WorkManager` 每 15 分钟（可配置，最短 15 分钟）；
+1. **应用启动**：按设置里的间隔重新登记周期任务（幂等）；
+2. **周期兜底**：`WorkManager` 每 15 分钟起（系统下限），间隔可在设置页调整；
 3. **App 主动刷新**：应用内下拉刷新拿到新数据后，直接 `AppWidgetManager.updateAppWidget()` 推送。
 
 ### 小部件显示内容
@@ -96,11 +110,11 @@
 用 [`miuix-blur`](https://github.com/compose-miuix-ui/miuix) 实现：
 
 1. 页面内容容器挂 `Modifier.layerBackdrop(backdrop)`，把绘制内容录进图形层；
-2. 底栏挂 `Modifier.drawBackdrop(...)`，对图层做**高斯模糊**（44dp）+ **颜色混合**（提亮 + 饱和度 1.45）；
+2. 底栏挂 `Modifier.drawBackdrop(...)`，对图层做**高斯模糊**（24dp）+ **颜色混合**（轻微提亮 + 饱和度 1.2）；
 3. 再用 `Highlight.GlassStrokeMiddleLight/Dark` 画一圈带定向光的玻璃描边，形成边缘高光。
 
 > ⚠️ 所有模糊效果都依赖 `RuntimeShader`，**Android 需要 API 33+**（本项目 `minSdk = 33`）。
-> 代码用 `isRuntimeShaderSupported()` 门控，不支持时自动降级为不透明胶囊底栏，功能不受影响。
+> 代码用 `isRuntimeShaderSupported()` 门控，不支持时自动降级为半透明底栏，功能不受影响。
 
 ---
 
@@ -159,8 +173,10 @@ base64 -w0 release.p12    # Windows: certutil -encode release.p12 out.txt
   额度池 `max()` 防负进度；订阅非 active 时改用 `spent + remaining`；缺字段不置零；模糊输入容错
 - **`FormatTest`** — token 以 M 显示；`null` 一律 `--`；均次成本 4 位小数；倒计时三档
 - **`StoresTest`** — 缓存往返、null 不置零、缓存损坏不崩
-- **`WidgetRendererTest`** — 各状态渲染不崩；**清单契约**：独立进程、`miuiWidget` 标识、
-  曝光刷新配置、两尺寸 label 一致、尺寸符合官方建议、根布局 `@android:id/background`
+- **`WidgetRendererTest`** — 各状态渲染不崩；**清单契约**：桌面能通过
+  `ACTION_APPWIDGET_UPDATE` 枚举到两个 Provider、不声明未登记的小米标识、
+  两尺寸 label 一致且符合 2–8 汉字、声明了 `previewLayout`/`previewImage`、
+  尺寸符合官方建议、根布局 `@android:id/background`
 
 ---
 

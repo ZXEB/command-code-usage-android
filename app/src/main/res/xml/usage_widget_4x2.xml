@@ -8,6 +8,11 @@
     4*4    300dp           250dp
   targetCellWidth/Height 是 Android 12+ 的原生网格单位，一并声明以提高在
   非小米桌面上的排版准确度。
+
+  previewImage 与 previewLayout 都要给：
+  - Android 12+ 的桌面优先用 previewLayout（真布局渲染，观感最新）；
+  - Android 12 以下 / 部分第三方桌面只认 previewImage，缺了它列表条目可能
+    没有缩略图、甚至被桌面过滤掉。两个都给才能覆盖所有桌面。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="300dp"
@@ -21,6 +26,7 @@
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_usage_4x2"
     android:previewLayout="@layout/widget_usage_4x2"
+    android:previewImage="@drawable/widget_preview_4x2"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/widget_description" />

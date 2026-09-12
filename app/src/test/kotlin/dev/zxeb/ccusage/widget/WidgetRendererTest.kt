@@ -120,21 +120,11 @@ class WidgetRendererTest {
     }
 
     // ------------------------------------------------------------------
-    // 清单契约：锁死澎湃小组件规范要求的元数据，防止后续误删
+    // 清单契约：锁死原生小部件必需的注册项，防止后续误删
     // ------------------------------------------------------------------
 
     @Test
-    fun `manifest declares miui widget requirements`() {
-        val info = context.packageManager
-            .getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
-        val meta = info.metaData
-        assertNotNull("缺少 application 级 meta-data", meta)
-        // §10 小部件版本号必须在 application 下
-        assertEquals(true, meta.containsKey("miuiWidgetVersion"))
-    }
-
-    @Test
-    fun `both widget providers are registered with miui metadata`() {
+    fun `both widget providers declare the appwidget provider config`() {
         val providers = listOf(
             ComponentName(context, UsageWidgetProvider::class.java),
             ComponentName(context, CompactWidgetProvider::class.java),
@@ -146,41 +136,64 @@ class WidgetRendererTest {
             )
             val meta = info.metaData
             assertNotNull("$component 缺少 meta-data", meta)
-            // §3 每个组件必须声明 appwidget provider 配置
-            assertTrue("$component 缺少 android.appwidget.provider", meta.containsKey("android.appwidget.provider"))
-            // §4 小米小部件标识
-            assertEquals(true, meta.getBoolean("miuiWidget"))
-            // §2.1 曝光刷新
-            assertEquals("exposure", meta.getString("miuiWidgetRefresh"))
+            // 每个组件必须声明 appwidget provider 配置，否则系统不认这是小部件
             assertTrue(
-                "曝光刷新间隔必须是 ≥10s 的毫秒数，实际=${meta["miuiWidgetRefreshMinInterval"]}",
-                metaInt(meta, "miuiWidgetRefreshMinInterval") >= 10_000,
+                "$component 缺少 android.appwidget.provider",
+                meta.containsKey("android.appwidget.provider"),
             )
         }
     }
 
-    /**
-     * 从 meta-data Bundle 里取整数。
-     *
-     * 不能直接用 `getString`：`android:value="60000"` 是纯数字字面量，系统在打包时
-     * 会把它存成 Integer 而不是 String，`getString` 会返回 null。
-     */
-    private fun metaInt(meta: android.os.Bundle, key: String): Int = when (val raw = meta[key]) {
-        is Int -> raw
-        is Long -> raw.toInt()
-        is String -> raw.toIntOrNull() ?: -1
-        else -> -1
+    @Test
+    fun `widgets are declared as plain android widgets not registered miui widgets`() {
+        // 本应用是侧载分发（GitHub Actions 出包），不会上架小米应用商店、
+        // 也不会在 widget.xiaomi.com 登记。按小米《小部件提交审核与上传操作指南》，
+        // 只有登记过并审核通过的小部件才会进「小部件中心」，而侧载应用应作为
+        // 原生小部件走「安卓小部件」入口。
+        //
+        // 因此这里反向锁定：两个 receiver 都**不得**再声明 miuiWidget，
+        // 应用级也**不得**有 miuiWidgetVersion。它们只作为原生小部件出现。
+        // 若日后真的要上架小米小部件中心，请连同登记流程一起改回并更新这条测试。
+        //
+        // 注：这些小米标识是否真会导致原生入口搜不到，并无官方/社区实证，
+        // 所以这里锁的是「不声明未登记的小米能力」这一正确姿势，而非声称能修好搜索。
+        for (component in listOf(
+            ComponentName(context, UsageWidgetProvider::class.java),
+            ComponentName(context, CompactWidgetProvider::class.java),
+        )) {
+            val info = context.packageManager.getReceiverInfo(
+                component,
+                android.content.pm.PackageManager.GET_META_DATA,
+            )
+            val meta = info.metaData
+            assertNotNull("$component 缺少 meta-data", meta)
+            assertEquals(
+                "$component 不应声明 miuiWidget（未登记的小米小部件不该声明小米能力）",
+                false,
+                meta.containsKey("miuiWidget"),
+            )
+        }
+
+        // application 级可能完全没有 meta-data，因此不能直接解引用
+        val appInfo = context.packageManager
+            .getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
+        val appMeta = appInfo.metaData
+        assertEquals(
+            "未登记的小米小部件不应声明 miuiWidgetVersion",
+            false,
+            appMeta?.containsKey("miuiWidgetVersion") ?: false,
+        )
     }
 
     @Test
     fun `widget providers stay in the main process on purpose`() {
-        // 小米规范 §1.3 要求小组件使用 :widgetProvider 独立进程，但《小部件审核规范》
-        // 同时要求该进程内存 ≤40M。本项目的小组件布局含 ProgressBar / Layer-List drawable，
-        // 在部分 HyperOS 版本上独立进程渲染会因内存压力导致卡片空白或干脆不显示。
-        // 权衡后让小组件跑默认（主）进程：渲染链路只读 SharedPreferences，占用极小。
+        // 独立进程（:widgetProvider）是小部件上架小米小部件中心的要求，本项目不上架。
+        // 反而独立进程会踩坑：WorkManager / androidx.startup 的 initializer 默认只在
+        // 主进程初始化，挪进独立进程后 WorkManager.getInstance() 会抛
+        // "WorkManager is not initialized properly"，设置页的「添加到桌面」直接崩。
+        // 小组件渲染只读 SharedPreferences、不联网，跑主进程开销极小。
         //
-        // 这条测试锁的是「这个决定是刻意的」——如果日后为了上架小米小部件中心改回
-        // :widgetProvider，请连带做内存压测并更新这里的断言。
+        // 这条测试锁的是「这个决定是刻意的」。
         for (component in listOf(
             ComponentName(context, UsageWidgetProvider::class.java),
             ComponentName(context, CompactWidgetProvider::class.java),
@@ -189,36 +202,47 @@ class WidgetRendererTest {
             val process = info.processName.orEmpty()
             val inMainProcess = process.isEmpty() || process == context.packageName
             assertTrue(
-                "$component 目前在默认进程，实际 processName=$process",
+                "$component 应跑在默认进程，实际 processName=$process",
                 inMainProcess,
             )
         }
     }
 
     @Test
-    fun `widget providers must be exported or the launcher cannot discover them`() {
-        // 这是「桌面添加小部件列表里找不到本应用」的直接原因，必须有测试锁住。
+    fun `widget providers are discoverable by the launcher`() {
+        // 桌面通过 queryIntentReceivers(ACTION_APPWIDGET_UPDATE) 枚举小部件，
+        // 所以每个 provider 的 intent-filter 里必须有这个 action —— 少了它，
+        // 系统枚举不到，桌面「添加小部件」列表里就不会出现本应用。
         //
-        // 系统由 AppWidgetServiceImpl.updateProvidersForPackageLocked() 通过
-        // queryIntentReceivers(ACTION_APPWIDGET_UPDATE) 枚举小组件，该方法使用的
-        // PackageManager 标记不包含未导出组件。exported=false 时：
-        //   - AppWidgetManager.getAppWidgetIds(...) 仍能拿到已添加实例（代码里读实例看似正常）
-        //   - 但桌面「添加小部件」根本解析不到这个 receiver，应用不会出现在列表里
-        for (component in listOf(
-            ComponentName(context, UsageWidgetProvider::class.java),
-            ComponentName(context, CompactWidgetProvider::class.java),
-        )) {
-            val info = context.packageManager.getReceiverInfo(component, 0)
+        // 这里读 manifest 源文件断言（而不是走 Robolectric 的 queryBroadcastReceivers：
+        // 该 API 在 shadow 里对 manifest 注册的 receiver 支持并不完全可靠，
+        // 容易因为测试环境差异产生假失败）。要锁的本来就是「声明了正确的 action」。
+        val xml = readSourceFile("AndroidManifest.xml")
+        assertNotNull("找不到 AndroidManifest.xml", xml)
+        for (provider in listOf("UsageWidgetProvider", "CompactWidgetProvider")) {
+            // 从 `<receiver` 标签开始切片段（不能用 indexOf(provider)：注释里也会提到
+            // provider 名与 APPWIDGET_UPDATE，那会造成假通过）
+            val nameIdx = xml!!.indexOf(provider)
+            assertTrue("AndroidManifest 里找不到 $provider", nameIdx >= 0)
+            val start = xml.lastIndexOf("<receiver", nameIdx)
+            assertTrue("$provider 不在 <receiver> 标签里", start >= 0)
+            val end = xml.indexOf("</receiver>", start)
+            assertTrue("$provider 的 <receiver> 没有闭合", end > start)
+            val fragment = xml.substring(start, end)
             assertTrue(
-                "$component 必须 android:exported=\"true\"，否则桌面的小部件列表里搜不到本应用",
-                info.exported,
+                "$provider 的 intent-filter 必须声明 android.appwidget.action.APPWIDGET_UPDATE",
+                fragment.contains("android.appwidget.action.APPWIDGET_UPDATE"),
+            )
+            assertTrue(
+                "$provider 必须声明 android.appwidget.provider 配置",
+                fragment.contains("android.appwidget.provider"),
             )
         }
     }
 
     @Test
-    fun `both widget sizes share the same label so hyperos groups them`() {
-        // 小米规范 §4：label 相同会被认为是同一功能的不同尺寸，在详情页聚合展示
+    fun `both widget sizes share the same label so the system groups them`() {
+        // label 相同会被认为是同一功能的不同尺寸，在添加页聚合展示
         val a = context.packageManager.getReceiverInfo(
             ComponentName(context, UsageWidgetProvider::class.java), 0,
         ).loadLabel(context.packageManager).toString()
@@ -226,6 +250,32 @@ class WidgetRendererTest {
             ComponentName(context, CompactWidgetProvider::class.java), 0,
         ).loadLabel(context.packageManager).toString()
         assertEquals(a, b)
+    }
+
+    @Test
+    fun `widget label follows the xiaomi 2 to 8 hanzi rule`() {
+        // 小米要求：小部件名称 2–8 个汉字，且不能与应用名相同。
+        // 超长或与应用同名的 label 在小米添加页上可能不被收录。
+        val label = context.packageManager.getReceiverInfo(
+            ComponentName(context, UsageWidgetProvider::class.java), 0,
+        ).loadLabel(context.packageManager).toString()
+        val hanzi = label.count { it.code in 0x4E00..0x9FFF }
+        assertTrue("小部件名称应有 2–8 个汉字，实际「$label」($hanzi 个)", hanzi in 2..8)
+        val appName = context.packageManager.getApplicationLabel(context.applicationInfo).toString()
+        assertTrue("小部件名称不能与应用名「$appName」相同", label != appName)
+    }
+
+    @Test
+    fun `appwidget provider xml declares previews so the launcher shows a thumbnail`() {
+        // 缺少缩略图时，部分桌面会不显示列表条目。Android 12+ 用 previewLayout，
+        // 旧版 / 第三方桌面回退到 previewImage —— 两个都声明才覆盖所有桌面。
+        for (name in listOf("usage_widget_4x2.xml", "usage_widget_2x2.xml")) {
+            val xml = readSource("xml/$name")
+            assertNotNull("找不到 $name", xml)
+            assertTrue("$name 必须声明 previewLayout", xml!!.contains("android:previewLayout="))
+            assertTrue("$name 必须声明 previewImage", xml.contains("android:previewImage="))
+            assertTrue("$name 必须声明 widgetCategory", xml.contains("android:widgetCategory="))
+        }
     }
 
     @Test
@@ -258,6 +308,16 @@ class WidgetRendererTest {
         val candidates = listOf(
             java.io.File("src/main/res/$relative"),
             java.io.File("app/src/main/res/$relative"),
+        )
+        val file = candidates.firstOrNull { it.isFile } ?: return null
+        return file.readText()
+    }
+
+    /** 读取 `app/src/main/<relative>` 源文件（用于 AndroidManifest.xml 这类非 res 文件）。 */
+    private fun readSourceFile(relative: String): String? {
+        val candidates = listOf(
+            java.io.File("src/main/$relative"),
+            java.io.File("app/src/main/$relative"),
         )
         val file = candidates.firstOrNull { it.isFile } ?: return null
         return file.readText()

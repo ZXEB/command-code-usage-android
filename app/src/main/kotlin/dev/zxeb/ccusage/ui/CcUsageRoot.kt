@@ -177,11 +177,16 @@ fun CcUsageRoot() {
                         modifier = Modifier.fillMaxSize(),
                         beyondViewportPageCount = 1,
                     ) { page ->
-                        // 每页独立滚动容器；大标题在滚动内容顶部，随页面滑走
+                        // 每页独立滚动容器；大标题在滚动内容顶部，随页面滑走。
+                        // edge-to-edge 下必须自己避开状态栏，否则大标题会被顶到状态栏
+                        // 底下、上沿被裁掉（「上面的字显示不全」就是这个原因）。
+                        // 只加内边距、不裁剪：内容向上滚动时仍从顶钮下方穿过，
+                        // 顶栏玻璃才有内容可采样，模糊效果才看得出来。
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .verticalScroll(rememberScrollState()),
+                                .verticalScroll(rememberScrollState())
+                                .statusBarsPadding(),
                         ) {
                             LargePageTitle(title = items[page].label)
                             Column(
@@ -228,7 +233,7 @@ fun CcUsageRoot() {
                 GlassTopButton(
                     backdrop = backdrop,
                     icon = MiuixIcons.More,
-                    contentDescription = "更多",
+                    contentDescription = context.getString(R.string.action_more),
                     onClick = { menuExpanded = !menuExpanded },
                     modifier = Modifier.onGloballyPositioned { coords ->
                         moreButtonBounds = coords.boundsInWindow()
@@ -267,7 +272,12 @@ fun CcUsageRoot() {
     }
 }
 
-/** 滚动内容顶部的大标题（澎湃 4 图库的「最近/浏览」形态）。 */
+/**
+ * 滚动内容顶部的大标题（澎湃 4 图库的「最近/浏览」形态）。
+ *
+ * 顶部留白要能容纳右上角两颗悬浮圆钮（44dp 高 + 8dp 上边距 = 52dp），
+ * 否则标题会和圆钮叠在同一水平线上。参考图里标题是落在圆钮下方的。
+ */
 @Composable
 private fun LargePageTitle(title: String) {
     Text(
@@ -275,7 +285,7 @@ private fun LargePageTitle(title: String) {
         fontSize = 34.sp,
         fontWeight = FontWeight.Bold,
         color = MiuixTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 56.dp, bottom = 16.dp),
     )
 }
 

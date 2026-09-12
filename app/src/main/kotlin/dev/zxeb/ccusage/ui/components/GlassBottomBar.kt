@@ -2,7 +2,6 @@ package dev.zxeb.ccusage.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -47,7 +46,6 @@ import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NavigationItem
@@ -115,23 +113,25 @@ fun GlassBottomBar(
     }
 
     // 首帧布局完成前用 snap，避免播放"从左上角滑过来"的入场动画
-    val spec: AnimationSpec<Dp> = if (settled) {
+    val spec: AnimationSpec<Float> = if (settled) {
         spring(dampingRatio = 0.82f, stiffness = 900f)
     } else {
         snap()
     }
 
-    val pillLeft by animateDpAsState(targetBounds?.left?.dp ?: 0.dp, spec, label = "pillLeft")
-    val pillTop by animateDpAsState(targetBounds?.top?.dp ?: 0.dp, spec, label = "pillTop")
-    val pillWidth by animateDpAsState(targetBounds?.width?.dp ?: 0.dp, spec, label = "pillWidth")
-    val pillHeight by animateDpAsState(targetBounds?.height?.dp ?: 0.dp, spec, label = "pillHeight")
+    // ⚠️ 全程用 px，不要在这里做 dp 转换。
+    // `boundsInParent()` 返回的本来就是**像素**；之前写成 `bounds.width.dp` 再在
+    // drawBehind 里 `toPx()`，等于把屏幕密度乘了两次 —— 高亮胶囊会被放大约 3 倍
+    // 并向右下偏移，糊成一大块盖住底栏。这里直接对 px 做动画与绘制，语义唯一。
+    val pillLeft by animateFloatAsState(targetBounds?.left ?: 0f, spec, label = "pillLeft")
+    val pillTop by animateFloatAsState(targetBounds?.top ?: 0f, spec, label = "pillTop")
+    val pillWidth by animateFloatAsState(targetBounds?.width ?: 0f, spec, label = "pillWidth")
+    val pillHeight by animateFloatAsState(targetBounds?.height ?: 0f, spec, label = "pillHeight")
 
     // 液态挤压：滑动途中胶囊按"目标宽度-当前宽度"水平拉伸、垂直微缩，到位回弹。
     // 拉伸量由动画进度（当前值与目标值的差）实时推算，无需额外状态。
     val density = LocalDensity.current
-    val stretchPx = with(density) {
-        (pillWidth - (targetBounds?.width?.dp ?: 0.dp)).toPx().let { if (it < 0f) -it else it }
-    }
+    val stretchPx = kotlin.math.abs(pillWidth - (targetBounds?.width ?: 0f))
     val maxStretchPx = with(density) { 8.dp.toPx() }
     val stretchFraction = (stretchPx / maxStretchPx).coerceIn(0f, 1f)
     val scaleX = 1f + stretchFraction * 0.14f
@@ -154,10 +154,11 @@ fun GlassBottomBar(
                 // 滑动的高亮胶囊画在内容之下；滑动中做液态拉伸形变
                 .drawBehind {
                     if (targetBounds == null) return@drawBehind
-                    val left = pillLeft.toPx()
-                    val top = pillTop.toPx()
-                    val width = pillWidth.toPx()
-                    val height = pillHeight.toPx()
+                    // 这几个值已经是像素（动画目标取自 boundsInParent），不要再 toPx()
+                    val left = pillLeft
+                    val top = pillTop
+                    val width = pillWidth
+                    val height = pillHeight
                     if (width <= 0f || height <= 0f) return@drawBehind
                     val cx = left + width / 2f
                     val cy = top + height / 2f
