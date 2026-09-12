@@ -25,7 +25,7 @@ import dev.zxeb.ccusage.R
 import dev.zxeb.ccusage.model.DataSource
 import dev.zxeb.ccusage.ui.components.GlassBottomBar
 import dev.zxeb.ccusage.widget.WidgetRefreshWorker
-import dev.zxeb.ccusage.widget.refreshWidgetsAsync
+import dev.zxeb.ccusage.widget.WidgetRenderer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.NavigationItem
@@ -80,9 +80,11 @@ fun CcUsageRoot() {
         )
     }
 
-    // 抓到新数据后把结果推给桌面小组件（小米规范 §10：App 主动刷新小部件）
+    // 抓到新数据后把结果推给桌面小组件（小米规范 §10：App 主动刷新小部件）。
+    // updateAll 是纯本地绘制（只读缓存 + updateAppWidget），在主进程调用没问题，
+    // 跨进程写入由 AppWidgetManager 自己处理。
     DisposableEffect(repository) {
-        repository.onSnapshotUpdated = { refreshWidgetsAsync(context) }
+        repository.onSnapshotUpdated = { WidgetRenderer.updateAll(context) }
         onDispose { repository.onSnapshotUpdated = null }
     }
 
@@ -157,7 +159,8 @@ fun CcUsageRoot() {
                             onSaved = { scope.launch { repository.refresh(force = true) } },
                             onCleared = {
                                 repository.clearCache()
-                                refreshWidgetsAsync(context)
+                                // 缓存清掉后小组件要回到引导视图
+                                WidgetRenderer.updateAll(context)
                             },
                         )
                     }
