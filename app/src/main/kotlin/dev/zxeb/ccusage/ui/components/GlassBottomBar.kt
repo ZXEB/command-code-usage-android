@@ -103,7 +103,7 @@ fun GlassBottomBar(
     }
 
     @Composable
-    fun glass(shape: Shape): Modifier = glassSurface(backdrop, shape)
+    fun glass(shape: Shape): Modifier = Modifier.glassSurface(backdrop, shape)
 
     // 每个导航项在胶囊坐标系里的位置，用于让选中胶囊滑动过去
     val itemBounds = remember { mutableStateMapOf<Int, Rect>() }

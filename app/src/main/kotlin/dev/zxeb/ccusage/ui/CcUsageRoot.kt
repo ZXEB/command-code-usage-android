@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import dev.zxeb.ccusage.CcUsageApp
 import dev.zxeb.ccusage.R
 import dev.zxeb.ccusage.model.DataSource
+import dev.zxeb.ccusage.ui.components.GlassBottomBar
 import dev.zxeb.ccusage.ui.components.GlassTopButton
 import dev.zxeb.ccusage.ui.components.HyperMenu
 import dev.zxeb.ccusage.widget.WidgetRefreshWorker
