@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 用量柱状图：三根递增的圆角柱，位于 72dp 安全区内 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,60 L38,60 Q42,60 42,64 L42,74 Q42,78 38,78 L34,78 Q30,78 30,74 L30,64 Q30,60 34,60 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,46 L56,46 Q60,46 60,50 L60,74 Q60,78 56,78 L52,78 Q48,78 48,74 L48,50 Q48,46 52,46 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,32 L74,32 Q78,32 78,36 L78,74 Q78,78 74,78 L70,78 Q66,78 66,74 L66,36 Q66,32 70,32 Z" />
+</vector>
