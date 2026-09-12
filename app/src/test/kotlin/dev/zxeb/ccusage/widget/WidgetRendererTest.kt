@@ -151,8 +151,24 @@ class WidgetRendererTest {
             assertEquals(true, meta.getBoolean("miuiWidget"))
             // §2.1 曝光刷新
             assertEquals("exposure", meta.getString("miuiWidgetRefresh"))
-            assertTrue("曝光刷新间隔必须是正整数毫秒", (meta.getString("miuiWidgetRefreshMinInterval")?.toIntOrNull() ?: 0) >= 10_000)
+            assertTrue(
+                "曝光刷新间隔必须是 ≥10s 的毫秒数，实际=${meta["miuiWidgetRefreshMinInterval"]}",
+                metaInt(meta, "miuiWidgetRefreshMinInterval") >= 10_000,
+            )
         }
+    }
+
+    /**
+     * 从 meta-data Bundle 里取整数。
+     *
+     * 不能直接用 `getString`：`android:value="60000"` 是纯数字字面量，系统在打包时
+     * 会把它存成 Integer 而不是 String，`getString` 会返回 null。
+     */
+    private fun metaInt(meta: android.os.Bundle, key: String): Int = when (val raw = meta[key]) {
+        is Int -> raw
+        is Long -> raw.toInt()
+        is String -> raw.toIntOrNull() ?: -1
+        else -> -1
     }
 
     @Test
@@ -182,26 +198,46 @@ class WidgetRendererTest {
 
     @Test
     fun `appwidget provider xml matches xiaomi size recommendations`() {
-        // 官方建议：4×2 = 300×110dp，2×2 = 110×110dp
-        val res = context.resources
-        val full = res.getIdentifier("usage_widget_4x2", "xml", context.packageName)
-        val compact = res.getIdentifier("usage_widget_2x2", "xml", context.packageName)
-        assertTrue(full != 0)
-        assertTrue(compact != 0)
+        // 官方《小部件技术规范》建议尺寸：4×2 = 300×110dp，2×2 = 110×110dp。
+        // 直接读源文件而不是解析编译后的资源：AAPT 会把 dimension 字面量编译掉，
+        // 反解容易受打包细节影响；这里要断言的就是「声明值」，读源文件最准确。
+        assertEquals(300, declaredDp("usage_widget_4x2.xml", "minWidth"))
+        assertEquals(110, declaredDp("usage_widget_4x2.xml", "minHeight"))
+        assertEquals(110, declaredDp("usage_widget_2x2.xml", "minWidth"))
+        assertEquals(110, declaredDp("usage_widget_2x2.xml", "minHeight"))
+    }
 
-        val parser = res.getXml(full)
-        var minWidth = -1
-        var minHeight = -1
-        var event = parser.next()
-        while (event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
-            if (event == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "appwidget-provider") {
-                minWidth = parser.getAttributeValue(null, "minWidth")?.removeSuffix("dp")?.toIntOrNull() ?: -1
-                minHeight = parser.getAttributeValue(null, "minHeight")?.removeSuffix("dp")?.toIntOrNull() ?: -1
-            }
-            event = parser.next()
+    @Test
+    fun `widget layouts declare the xiaomi required root id and opaque background`() {
+        // 小米规范 §7.1：系统通过固定 id @android:id/background 找到根布局来加圆角；
+        // 且根布局必须有背景色、不能全透明（切换动画依赖背景色）。
+        for (name in listOf("widget_usage_4x2.xml", "widget_usage_2x2.xml", "widget_usage_empty.xml")) {
+            val xml = readSource("layout/$name")
+            assertNotNull("找不到 $name", xml)
+            assertTrue("$name 根布局必须声明 @android:id/background", xml!!.contains("@android:id/background"))
+            assertTrue("$name 根布局必须有背景", xml.contains("android:background="))
+            // 规范 §8：宽高必须 match_parent
+            assertTrue("$name 根布局宽高必须 match_parent", xml.contains("android:layout_width=\"match_parent\""))
         }
-        assertEquals(300, minWidth)
-        assertEquals(110, minHeight)
+    }
+
+    /** 读取 `app/src/main/res/<relative>` 源文件。Gradle 单测的工作目录就是模块目录。 */
+    private fun readSource(relative: String): String? {
+        val candidates = listOf(
+            java.io.File("src/main/res/$relative"),
+            java.io.File("app/src/main/res/$relative"),
+        )
+        val file = candidates.firstOrNull { it.isFile } ?: return null
+        return file.readText()
+    }
+
+    /** 从 appwidget-provider XML 源文件里取 `android:xxx="300dp"` 的数值部分。 */
+    private fun declaredDp(fileName: String, attribute: String): Int {
+        val xml = readSource("xml/$fileName")
+        assertNotNull("找不到 $fileName", xml)
+        val match = Regex("""android:$attribute\s*=\s*"(\d+)dp"""").find(xml!!)
+        assertNotNull("$fileName 里没有声明 android:$attribute=\"<n>dp\"", match)
+        return match!!.groupValues[1].toInt()
     }
 
     @Test
