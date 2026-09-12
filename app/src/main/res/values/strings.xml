@@ -14,14 +14,9 @@
     <string name="widget_percent_caption">月度剩余</string>
     <string name="widget_empty_title">CC 用量</string>
     <string name="widget_empty_hint">点此打开应用，填入 API Key 后即可显示用量</string>
-    <string name="widget_stale_badge">⚠ 旧数据</string>
 
     <!-- 应用内 -->
     <string name="tab_overview">概览</string>
     <string name="tab_detail">明细</string>
     <string name="tab_settings">设置</string>
-    <string name="action_refresh">刷新</string>
-    <string name="action_save">保存</string>
-    <string name="action_add_widget">添加桌面小组件</string>
-    <string name="action_clear_cache">清除缓存</string>
 </resources>
