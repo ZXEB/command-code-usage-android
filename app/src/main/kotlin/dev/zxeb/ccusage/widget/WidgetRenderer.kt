@@ -118,11 +118,12 @@ object WidgetRenderer {
         )
 
         // 5 小时窗口
-        val fiveHour = snapshot.fiveHour
+        // 注意：percent 是带自定义 getter 的计算属性，不能直接智能转换，先取到局部变量
+        val fiveHourPercent = snapshot.fiveHour?.percent
         views.setTextViewText(
             R.id.widget_fivehour,
             when {
-                fiveHour?.percent != null -> "5小时 ${fiveHour.percent.toInt()}%"
+                fiveHourPercent != null -> "5小时 ${fiveHourPercent.toInt()}%"
                 !hasApiKey -> "未配置 API Key"
                 else -> "5小时 --"
             },

@@ -8,6 +8,7 @@ import dev.zxeb.ccusage.model.TokenBasis
 import dev.zxeb.ccusage.model.UsageSnapshot
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
@@ -160,19 +161,19 @@ class SnapshotStore(context: Context) {
     private fun decode(raw: String): UsageSnapshot {
         val obj = json.parseToJsonElement(raw) as JsonObject
 
-        fun d(key: String): Double? = obj[key]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.doubleOrNull }
-        fun l(key: String): Long? = obj[key]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }
-        fun s(key: String): String? = obj[key]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-        fun b(key: String): Boolean? = obj[key]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull }
+        fun d(key: String): Double? = obj[key]?.let { (it as? JsonPrimitive)?.doubleOrNull }
+        fun l(key: String): Long? = obj[key]?.let { (it as? JsonPrimitive)?.longOrNull }
+        fun s(key: String): String? = obj[key]?.let { (it as? JsonPrimitive)?.content }
+        fun bool(key: String): Boolean? = obj[key]?.let { (it as? JsonPrimitive)?.content?.toBooleanStrictOrNull() }
         fun instant(key: String): Instant? = l(key)?.let { Instant.ofEpochMilli(it) }
 
         fun window(key: String): RateWindow? {
             val node = obj[key] as? JsonObject ?: return null
-            fun wd(k: String): Double? = node[k]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.doubleOrNull }
-            fun wl(k: String): Long? = node[k]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull }
-            fun wb(k: String): Boolean? = node[k]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull }
+            fun wd(k: String): Double? = node[k]?.let { (it as? JsonPrimitive)?.doubleOrNull }
+            fun wl(k: String): Long? = node[k]?.let { (it as? JsonPrimitive)?.longOrNull }
+            fun wb(k: String): Boolean? = node[k]?.let { (it as? JsonPrimitive)?.content?.toBooleanStrictOrNull() }
             return RateWindow(
-                label = node["label"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty(),
+                label = node["label"]?.let { (it as? JsonPrimitive)?.content }.orEmpty(),
                 used = wd("used"),
                 cap = wd("cap"),
                 resetAt = wl("resetAt")?.let { Instant.ofEpochMilli(it) },
