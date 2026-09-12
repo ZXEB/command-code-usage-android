@@ -1,8 +1,10 @@
 import java.util.Base64
 
 plugins {
+    // 注意：AGP 9 起「内置 Kotlin 支持」，**不能**再应用 org.jetbrains.kotlin.android，
+    // 否则会报 "The 'org.jetbrains.kotlin.android' plugin is no longer required for Kotlin
+    // support since AGP 9.0"。Kotlin 编译由 AGP 内置的 KGP 承担。
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.multiplatform)
@@ -29,9 +31,9 @@ val prepareSigningKey by tasks.registering {
     val data = keystoreBase64
     outputs.file(out)
     doLast {
-        val f = out.get().asFile
-        f.parentFile.mkdirs()
-        f.writeBytes(Base64.getDecoder().decode(data))
+        val file = out.get().asFile
+        file.parentFile.mkdirs()
+        file.writeBytes(Base64.getDecoder().decode(data))
     }
 }
 
@@ -45,7 +47,6 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
-        resourceConfigurations += listOf("zh", "en")
     }
 
     if (hasSigningKey) {
@@ -79,11 +80,6 @@ android {
         }
     }
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
     buildFeatures {
         compose = true
     }
@@ -100,21 +96,14 @@ android {
             excludes += setOf(
                 "/META-INF/{AL2.0,LGPL2.1}",
                 "/META-INF/DEPENDENCIES",
-                "META-INF/*.kotlin_module",
             )
         }
     }
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-    }
-}
-
 // 有密钥时先解出 keystore，再交给打包任务
 if (hasSigningKey) {
-    tasks.matching { it.name.startsWith("package") || it.name.contains("SigningConfig") }.configureEach {
+    tasks.matching { it.name.startsWith("package") }.configureEach {
         dependsOn(prepareSigningKey)
     }
 }
