@@ -1,5 +1,12 @@
 package dev.zxeb.ccusage.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -17,15 +24,29 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NavigationItem
@@ -45,19 +66,22 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 液态玻璃底栏（澎湃 4 / HyperOS 风格）。
  *
- * 形态对齐 HyperOS 4 的底栏：**左侧一颗悬浮胶囊放导航项 + 右侧一颗独立圆形按钮**。
- * 胶囊由 [Modifier.drawBackdrop] 实时采样页面内容做高斯模糊，叠一层颜色混合得到玻璃折射感，
- * 再用 [Highlight] 的玻璃描边预设加一圈边缘高光。
+ * 形态对齐 HyperOS 4 底栏：**左侧一颗悬浮胶囊放导航项 + 右侧一颗独立圆形按钮**。
+ *
+ * 动画（对齐 HyperOS 4 的底栏切换）：
+ * - **选中态是一颗会滑动的胶囊**，切换时从旧项平滑滑到新项，而不是各画各的；
+ * - 图标与文字颜色做 [animateColorAsState] 过渡；
+ * - 选中图标轻微放大（1.0 → 1.06），给一点"弹"的手感。
+ * 时长/曲线与 Miuix 导航项保持一致（spring，质量偏轻），避免和库内其它动画打架。
+ *
+ * 玻璃：胶囊由 [Modifier.drawBackdrop] 实时采样页面内容做高斯模糊，叠颜色混合得到折射感，
+ * 再用 [Highlight] 加一圈玻璃描边高光。
  *
  * 为什么不直接用 Miuix 的 `FloatingNavigationBar`：它的内部修饰符顺序是
  * `.padding(bottom = 36.dp)` → `.dropShadow(...)` → `.squircleBackground(color)`。
  * 当 `color = Color.Transparent` 时，`dropShadow`（`shadowElevation` 默认 1.dp）会在
- * **全透明背景上画出一层黑色投影**，糊成一块灰色脏斑；同时那 36dp 底部内边距落在背景之外，
- * 底栏底部会露出一条浅带。这两个行为叠加正是之前的显示异常。
- * 这里自己控制几何与配色，行为完全可预期。
- *
- * 交互与无障碍仍沿用 Miuix 的做法：`selectable` + `Role.Tab` / `Role.Button`，文字与图标用
- * Miuix 的 [Text] / [Icon] 与 [MiuixTheme]。
+ * **全透明背景上画出一层黑色投影**，糊成灰色脏斑；同时那 36dp 底部内边距落在背景之外，
+ * 底栏下方会露出一条浅带。这里自己控制几何与配色，行为完全可预期。
  *
  * @param backdrop 由页面内容容器通过 `Modifier.layerBackdrop` 录制、这里采样。
  * @param actionIcon 右侧独立圆形按钮的图标（本应用用作「刷新」）。
@@ -101,15 +125,13 @@ fun GlassBottomBar(
         if (dark) Highlight.GlassStrokeMiddleDark else Highlight.GlassStrokeMiddleLight
     }
 
-    // Highlight 负责随倾斜偏移的内高光；再补一道极细实边，
-    // 让玻璃在浅色壁纸上也有清晰轮廓（HyperOS 的玻璃边缘就是这个观感）。
     val hairline = if (dark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.55f)
     val fallbackColor = MiuixTheme.colorScheme.surfaceContainer
     val iconColor = MiuixTheme.colorScheme.onSurfaceContainer
     val selectedPillColor = if (dark) {
         Color.White.copy(alpha = 0.20f)
     } else {
-        Color.White.copy(alpha = 0.72f)
+        Color.White.copy(alpha = 0.78f)
     }
 
     fun glass(shape: Shape): Modifier =
@@ -128,6 +150,27 @@ fun GlassBottomBar(
             Modifier.clip(shape).background(fallbackColor)
         }
 
+    // 每个导航项在胶囊坐标系里的位置，用于让选中胶囊滑动过去
+    val itemBounds = remember { mutableStateMapOf<Int, Rect>() }
+    // 首帧布局完成前不要播放"从 0 滑过来"的入场动画
+    var settled by remember { mutableStateOf(false) }
+    val targetBounds = itemBounds[selectedIndex]
+    LaunchedEffect(targetBounds != null) {
+        if (targetBounds != null) settled = true
+    }
+
+    // 首帧布局完成前用 snap，避免播放"从左上角滑过来"的入场动画
+    val spec: AnimationSpec<Dp> = if (settled) {
+        spring(dampingRatio = 0.82f, stiffness = 900f)
+    } else {
+        snap()
+    }
+
+    val pillLeft by animateDpAsState(targetBounds?.left?.dp ?: 0.dp, spec, label = "pillLeft")
+    val pillTop by animateDpAsState(targetBounds?.top?.dp ?: 0.dp, spec, label = "pillTop")
+    val pillWidth by animateDpAsState(targetBounds?.width?.dp ?: 0.dp, spec, label = "pillWidth")
+    val pillHeight by animateDpAsState(targetBounds?.height?.dp ?: 0.dp, spec, label = "pillHeight")
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -142,6 +185,21 @@ fun GlassBottomBar(
                 .height(PILL_HEIGHT)
                 .then(glass(pillShape))
                 .border(0.5.dp, hairline, pillShape)
+                // 滑动的高亮胶囊画在内容之下
+                .drawBehind {
+                    if (targetBounds == null) return@drawBehind
+                    val left = pillLeft.toPx()
+                    val top = pillTop.toPx()
+                    val width = pillWidth.toPx()
+                    val height = pillHeight.toPx()
+                    if (width <= 0f || height <= 0f) return@drawBehind
+                    drawRoundRect(
+                        color = selectedPillColor,
+                        topLeft = Offset(left, top),
+                        size = Size(width, height),
+                        cornerRadius = CornerRadius(height / 2f),
+                    )
+                }
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -152,7 +210,11 @@ fun GlassBottomBar(
                     selected = index == selectedIndex,
                     onClick = { onSelect(index) },
                     iconColor = iconColor,
-                    selectedPillColor = selectedPillColor,
+                    modifier = Modifier.onGloballyPositioned { coords ->
+                        val bounds = coords.boundsInParent()
+                        // 避免每帧都写状态造成无谓重组
+                        if (itemBounds[index] != bounds) itemBounds[index] = bounds
+                    },
                 )
             }
         }
@@ -185,7 +247,8 @@ fun GlassBottomBar(
 }
 
 /**
- * 单个导航项。选中时在图标 + 文字背后垫一颗浅色胶囊 —— 这是 HyperOS 底栏最显著的识别特征。
+ * 单个导航项。选中高亮由外层的滑动胶囊统一绘制，这里只负责图标/文字的状态动画，
+ * 否则切换时会出现"旧胶囊瞬间消失、新胶囊瞬间出现"的跳变。
  */
 @Composable
 private fun GlassNavItem(
@@ -193,13 +256,24 @@ private fun GlassNavItem(
     selected: Boolean,
     onClick: () -> Unit,
     iconColor: Color,
-    selectedPillColor: Color,
+    modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(percent = 50)
+
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) iconColor else iconColor.copy(alpha = 0.55f),
+        animationSpec = tween(durationMillis = 220),
+        label = "navItemColor",
+    )
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.06f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 1200f),
+        label = "navItemScale",
+    )
+
     Column(
-        modifier = Modifier
+        modifier = modifier
             .clip(shape)
-            .then(if (selected) Modifier.background(selectedPillColor) else Modifier)
             .selectable(
                 selected = selected,
                 onClick = onClick,
@@ -213,14 +287,17 @@ private fun GlassNavItem(
     ) {
         Icon(
             imageVector = item.icon,
-            contentDescription = item.label,
-            tint = if (selected) iconColor else iconColor.copy(alpha = 0.55f),
-            modifier = Modifier.size(NAV_ICON_SIZE),
+            // 相邻文字已经念出名称，图标对 TalkBack 重复朗读没有意义
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier
+                .size(NAV_ICON_SIZE)
+                .scale(iconScale),
         )
         Text(
             text = item.label,
             style = MiuixTheme.textStyles.footnote2,
-            color = if (selected) iconColor else iconColor.copy(alpha = 0.55f),
+            color = contentColor,
         )
     }
 }

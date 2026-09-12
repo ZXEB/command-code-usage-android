@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -28,7 +29,6 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -52,6 +52,9 @@ fun SettingsScreen(
     var autoRefresh by remember { mutableStateOf(settings.autoRefreshMinutes) }
     var showFiveHour by remember { mutableStateOf(settings.widgetShowFiveHour) }
     var savedHint by remember { mutableStateOf<String?>(null) }
+    var widgetHint by remember { mutableStateOf<String?>(null) }
+    // 添加/移除小组件后用于强制重算实例数
+    var widgetRefreshKey by remember { mutableIntStateOf(0) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -157,15 +160,30 @@ fun SettingsScreen(
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
-                WidgetStateRow(context)
+                WidgetStateRow(context, widgetRefreshKey)
 
                 Button(
-                    onClick = { requestPinWidget(context) },
+                    onClick = { requestPinWidget(context) { widgetHint = it } },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O,
                 ) {
                     Text("添加到桌面")
                 }
+
+                widgetHint?.let {
+                    Text(
+                        text = it,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.primary,
+                    )
+                }
+
+                // pin 在部分 HyperOS 版本上不可用，给出手动路径作为兜底
+                Text(
+                    text = "如果上面没有反应：长按桌面空白处 → 添加小部件 → " +
+                        "搜索「Command Code 用量」。安装后系统刷新小组件列表可能需要一点时间。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
             }
         }
 
@@ -247,12 +265,13 @@ private fun Row3(
 }
 
 @Composable
-private fun WidgetStateRow(context: Context) {
+private fun WidgetStateRow(context: Context, refreshKey: Int) {
     val manager = remember { AppWidgetManager.getInstance(context) }
-    val full = remember {
+    // refreshKey 变化时重算，避免添加完小组件后数字还是旧的
+    val full = remember(refreshKey) {
         manager?.getAppWidgetIds(ComponentName(context, UsageWidgetProvider::class.java))?.size ?: 0
     }
-    val compact = remember {
+    val compact = remember(refreshKey) {
         manager?.getAppWidgetIds(ComponentName(context, CompactWidgetProvider::class.java))?.size ?: 0
     }
     val total = full + compact
@@ -267,12 +286,54 @@ private fun WidgetStateRow(context: Context) {
     )
 }
 
-/** 请求把小组件 pin 到桌面。部分桌面不支持时系统会静默忽略。 */
-private fun requestPinWidget(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-    val manager = AppWidgetManager.getInstance(context) ?: return
-    if (!manager.isRequestPinAppWidgetSupported) return
-    runCatching {
-        manager.requestPinAppWidget(ComponentName(context, UsageWidgetProvider::class.java), null, null)
+/**
+ * 请求把小组件 pin 到桌面。
+ *
+ * 之前这里「点了没反应」，原因是把所有失败路径都静默吞掉了。按 AOSP
+ * `AppWidgetServiceImpl.requestPinAppWidget()` 的实现，失败会**返回 false 而不抛异常**，
+ * 常见原因有三类，现在逐条区分并给出可操作提示：
+ *
+ * 1. `!isRequestPinAppWidgetSupported` —— 桌面自身不支持 pin（部分 HyperOS 版本如此）；
+ * 2. `lookupProviderLocked(...) == null` —— 系统还没把本应用的小组件登记进列表
+ *    （安装后需要一点时间，或需要重启桌面进程）；
+ * 3. `widgetCategory` 不含 HOME_SCREEN —— 配置写错了（本项目的 XML 已显式声明）。
+ *
+ * 注意：pin 失败**不等于**小组件不可用 —— 用户仍然可以长按桌面 →「添加小部件」手动添加。
+ * 所以失败时要把这条退路明确告诉用户，而不是什么都不显示。
+ */
+private fun requestPinWidget(context: Context, onResult: (String) -> Unit) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+        onResult("当前系统版本不支持一键添加，请长按桌面 → 添加小部件")
+        return
+    }
+    val manager = AppWidgetManager.getInstance(context)
+    if (manager == null) {
+        onResult("系统服务不可用，请长按桌面 → 添加小部件")
+        return
+    }
+    if (!manager.isRequestPinAppWidgetSupported) {
+        onResult(
+            "当前桌面不支持一键添加。请长按桌面空白处 → 添加小部件 → " +
+                "搜索「Command Code 用量」",
+        )
+        return
+    }
+
+    val requested = runCatching {
+        manager.requestPinAppWidget(
+            ComponentName(context, UsageWidgetProvider::class.java),
+            null,
+            null,
+        )
+    }.getOrElse { false }
+
+    if (requested) {
+        onResult("已发起添加请求，请在弹出的确认框里点「添加」")
+    } else {
+        // 走到这里说明系统登记还没完成（或桌面拒绝），给出确定可行的退路
+        onResult(
+            "系统暂时没能拉起添加流程（小组件列表可能还没刷新）。" +
+                "请长按桌面空白处 → 添加小部件 → 搜索「Command Code 用量」",
+        )
     }
 }

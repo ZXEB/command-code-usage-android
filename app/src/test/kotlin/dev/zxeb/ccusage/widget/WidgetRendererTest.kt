@@ -173,16 +173,26 @@ class WidgetRendererTest {
     }
 
     @Test
-    fun `widget providers run in the dedicated widget process`() {
-        // 小米规范 §1.3：Widget 必须使用 :widgetProvider 独立进程
-        val info = context.packageManager.getReceiverInfo(
+    fun `widget providers stay in the main process on purpose`() {
+        // 小米规范 §1.3 要求小组件使用 :widgetProvider 独立进程，但《小部件审核规范》
+        // 同时要求该进程内存 ≤40M。本项目的小组件布局含 ProgressBar / Layer-List drawable，
+        // 在部分 HyperOS 版本上独立进程渲染会因内存压力导致卡片空白或干脆不显示。
+        // 权衡后让小组件跑默认（主）进程：渲染链路只读 SharedPreferences，占用极小。
+        //
+        // 这条测试锁的是「这个决定是刻意的」——如果日后为了上架小米小部件中心改回
+        // :widgetProvider，请连带做内存压测并更新这里的断言。
+        for (component in listOf(
             ComponentName(context, UsageWidgetProvider::class.java),
-            android.content.pm.PackageManager.GET_META_DATA,
-        )
-        assertTrue(
-            "Provider 必须声明 android:process=\":widgetProvider\"，实际=${info.processName}",
-            info.processName?.endsWith(":widgetProvider") == true,
-        )
+            ComponentName(context, CompactWidgetProvider::class.java),
+        )) {
+            val info = context.packageManager.getReceiverInfo(component, 0)
+            val process = info.processName.orEmpty()
+            val inMainProcess = process.isEmpty() || process == context.packageName
+            assertTrue(
+                "$component 目前在默认进程，实际 processName=$process",
+                inMainProcess,
+            )
+        }
     }
 
     @Test
