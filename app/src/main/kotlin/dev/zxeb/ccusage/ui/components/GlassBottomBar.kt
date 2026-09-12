@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -142,9 +143,15 @@ fun GlassBottomBar(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = BAR_HORIZONTAL_PADDING, vertical = BAR_BOTTOM_PADDING),
-        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // symmetric three-column layout keeps the navigation pill centered.
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(PILL_HEIGHT),
+        )
+
         // ---------------- 导航胶囊 ----------------
         Row(
             modifier = Modifier
@@ -199,6 +206,8 @@ fun GlassBottomBar(
         Box(
             modifier = Modifier
                 .padding(start = ACTION_GAP)
+                .weight(1f)
+                .wrapContentWidth(Alignment.End)
                 .size(PILL_HEIGHT)
                 .pressScale(actionInteraction, pressedScale = 0.9f)
                 .then(glass(circleShape))
