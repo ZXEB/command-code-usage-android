@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -41,6 +40,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -52,15 +52,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurBlendMode
-import top.yukonga.miuix.kmp.blur.BlurDefaults
-import top.yukonga.miuix.kmp.blur.blendColors
-import top.yukonga.miuix.kmp.blur.blur
-import top.yukonga.miuix.kmp.blur.drawBackdrop
-import top.yukonga.miuix.kmp.blur.highlight.Highlight
-import top.yukonga.miuix.kmp.blur.noiseDither
-import top.yukonga.miuix.kmp.shader.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -98,35 +89,11 @@ fun GlassBottomBar(
     modifier: Modifier = Modifier,
     actionEnabled: Boolean = true,
 ) {
-    val supported = isRuntimeShaderSupported()
     val dark = isSystemInDarkTheme()
     val pillShape = RoundedCornerShape(percent = 50)
     val circleShape = CircleShape
 
-    val blurPx = with(LocalDensity.current) { GLASS_BLUR_DP.dp.toPx() }
-
-    // 玻璃合成：提亮 + 提饱和，模拟玻璃对背景的折射与聚色
-    val glassColors = BlurDefaults.blurColors(
-        blendColors = listOf(
-            BlendColorEntry(
-                color = if (dark) {
-                    Color.White.copy(alpha = 0.14f)
-                } else {
-                    Color.White.copy(alpha = 0.52f)
-                },
-                mode = BlurBlendMode.SrcOver,
-            ),
-        ),
-        brightness = if (dark) 0.03f else 0.05f,
-        contrast = 1.05f,
-        saturation = 1.55f,
-    )
-    val glassHighlight = remember(dark) {
-        if (dark) Highlight.GlassStrokeMiddleDark else Highlight.GlassStrokeMiddleLight
-    }
-
-    val hairline = if (dark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.55f)
-    val fallbackColor = MiuixTheme.colorScheme.surfaceContainer
+    val hairline = glassHairline(dark)
     val iconColor = MiuixTheme.colorScheme.onSurfaceContainer
     val selectedPillColor = if (dark) {
         Color.White.copy(alpha = 0.20f)
@@ -134,21 +101,7 @@ fun GlassBottomBar(
         Color.White.copy(alpha = 0.78f)
     }
 
-    fun glass(shape: Shape): Modifier =
-        if (supported) {
-            Modifier.drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    blur(radiusX = blurPx, radiusY = blurPx)
-                    noiseDither(BlurDefaults.NoiseCoefficient)
-                    blendColors(glassColors)
-                },
-                highlight = { glassHighlight },
-            )
-        } else {
-            Modifier.clip(shape).background(fallbackColor)
-        }
+    fun glass(shape: Shape): Modifier = glassSurface(backdrop, shape)
 
     // 每个导航项在胶囊坐标系里的位置，用于让选中胶囊滑动过去
     val itemBounds = remember { mutableStateMapOf<Int, Rect>() }
@@ -171,6 +124,17 @@ fun GlassBottomBar(
     val pillWidth by animateDpAsState(targetBounds?.width?.dp ?: 0.dp, spec, label = "pillWidth")
     val pillHeight by animateDpAsState(targetBounds?.height?.dp ?: 0.dp, spec, label = "pillHeight")
 
+    // 液态挤压：滑动途中胶囊按"目标宽度-当前宽度"水平拉伸、垂直微缩，到位回弹。
+    // 拉伸量由动画进度（当前值与目标值的差）实时推算，无需额外状态。
+    val density = LocalDensity.current
+    val stretchPx = with(density) {
+        (pillWidth - (targetBounds?.width?.dp ?: 0.dp)).toPx().let { if (it < 0f) -it else it }
+    }
+    val maxStretchPx = with(density) { 8.dp.toPx() }
+    val stretchFraction = (stretchPx / maxStretchPx).coerceIn(0f, 1f)
+    val scaleX = 1f + stretchFraction * 0.14f
+    val scaleY = 1f - stretchFraction * 0.06f
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -185,7 +149,7 @@ fun GlassBottomBar(
                 .height(PILL_HEIGHT)
                 .then(glass(pillShape))
                 .border(0.5.dp, hairline, pillShape)
-                // 滑动的高亮胶囊画在内容之下
+                // 滑动的高亮胶囊画在内容之下；滑动中做液态拉伸形变
                 .drawBehind {
                     if (targetBounds == null) return@drawBehind
                     val left = pillLeft.toPx()
@@ -193,12 +157,20 @@ fun GlassBottomBar(
                     val width = pillWidth.toPx()
                     val height = pillHeight.toPx()
                     if (width <= 0f || height <= 0f) return@drawBehind
-                    drawRoundRect(
-                        color = selectedPillColor,
-                        topLeft = Offset(left, top),
-                        size = Size(width, height),
-                        cornerRadius = CornerRadius(height / 2f),
-                    )
+                    val cx = left + width / 2f
+                    val cy = top + height / 2f
+                    val w = width * scaleX
+                    val h = height * scaleY
+                    withTransform({
+                        scale(scaleX, scaleY, pivot = Offset(cx, cy))
+                    }) {
+                        drawRoundRect(
+                            color = selectedPillColor,
+                            topLeft = Offset(cx - w / 2f, cy - h / 2f),
+                            size = Size(w, h),
+                            cornerRadius = CornerRadius(h / 2f),
+                        )
+                    }
                 }
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -220,17 +192,19 @@ fun GlassBottomBar(
         }
 
         // ---------------- 独立圆形按钮 ----------------
+        val actionInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .padding(start = ACTION_GAP)
                 .size(PILL_HEIGHT)
+                .pressScale(actionInteraction, pressedScale = 0.9f)
                 .then(glass(circleShape))
                 .border(0.5.dp, hairline, circleShape)
                 .selectable(
                     selected = false,
                     enabled = actionEnabled,
                     role = Role.Button,
-                    interactionSource = remember { MutableInteractionSource() },
+                    interactionSource = actionInteraction,
                     indication = null,
                     onClick = onAction,
                 ),
@@ -259,26 +233,34 @@ private fun GlassNavItem(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(percent = 50)
+    val interaction = remember { MutableInteractionSource() }
 
     val contentColor by animateColorAsState(
         targetValue = if (selected) iconColor else iconColor.copy(alpha = 0.55f),
         animationSpec = tween(durationMillis = 220),
         label = "navItemColor",
     )
+    // 选中：带过冲的弹一下；按下：轻微下压
     val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1.06f else 1f,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = 1200f),
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 800f),
         label = "navItemScale",
+    )
+    val pressScale by animateFloatAsState(
+        targetValue = if (interaction.collectIsPressedAsState()) 0.9f else 1f,
+        animationSpec = PressScaleSpring,
+        label = "navItemPress",
     )
 
     Column(
         modifier = modifier
             .clip(shape)
+            .scale(pressScale)
             .selectable(
                 selected = selected,
                 onClick = onClick,
                 role = Role.Tab,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null,
             )
             .padding(horizontal = ITEM_HORIZONTAL_PADDING, vertical = 5.dp),
@@ -319,6 +301,3 @@ private val ACTION_GAP = 10.dp
 private val NAV_ICON_SIZE = 22.dp
 private val ACTION_ICON_SIZE = 24.dp
 private val ITEM_HORIZONTAL_PADDING = 15.dp
-
-/** 玻璃模糊半径。越大越「厚」，HyperOS 的底栏属于偏厚的一档。 */
-private const val GLASS_BLUR_DP = 50f
