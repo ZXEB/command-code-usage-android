@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 圆角卡片背景。系统会给 @android:id/background 统一加圆角，这里再补一层自己的
+     圆角与描边，保证在非小米桌面上也有正确的观感。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_background_color" />
+    <corners android:radius="22dp" />
+    <stroke
+        android:width="0.5dp"
+        android:color="@color/widget_progress_track" />
+</shape>

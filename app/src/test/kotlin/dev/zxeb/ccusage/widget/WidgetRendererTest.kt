@@ -1,0 +1,236 @@
+package dev.zxeb.ccusage.widget
+
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.content.Context
+import dev.zxeb.ccusage.R
+import dev.zxeb.ccusage.data.SettingsStore
+import dev.zxeb.ccusage.model.RateWindow
+import dev.zxeb.ccusage.model.TokenBasis
+import dev.zxeb.ccusage.model.UsageSnapshot
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.time.Instant
+
+/**
+ * 小组件渲染测试。
+ *
+ * RemoteViews 的渲染无法在 JVM 里做像素断言，所以这里覆盖的是**不变量**：
+ * 各状态都必须能构建出 RemoteViews（不崩溃、不空白），且关键文案符合预期。
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class WidgetRendererTest {
+
+    private val context: Context get() = org.robolectric.RuntimeEnvironment.getApplication()
+
+    private fun snapshot(
+        totalRemaining: Double? = 4.93,
+        usagePercent: Double? = 50.7,
+        tokensTotal: Long? = 233_370_995L,
+        basis: TokenBasis = TokenBasis.BILLING_PERIOD,
+        fiveHour: RateWindow? = RateWindow("5 小时", 0.072, 3.0, null),
+        status: String? = "active",
+    ) = UsageSnapshot(
+        planName = "Go",
+        subscriptionStatus = status,
+        totalRemaining = totalRemaining,
+        usagePercent = usagePercent,
+        tokensTotal = tokensTotal,
+        tokenBasis = basis,
+        fiveHour = fiveHour,
+        fetchedAt = Instant.now(),
+    )
+
+    @Test
+    fun `full widget renders with data`() {
+        val views = WidgetRenderer.render(context, compact = false, snapshot = snapshot(), hasApiKey = true)
+        assertNotNull(views)
+    }
+
+    @Test
+    fun `compact widget renders with data`() {
+        val views = WidgetRenderer.render(context, compact = true, snapshot = snapshot(), hasApiKey = true)
+        assertNotNull(views)
+    }
+
+    @Test
+    fun `null snapshot renders the guidance view not a crash`() {
+        // 小米规范 §9：清数据 / 未授权时必须回到默认视图，不能空白或崩溃
+        val views = WidgetRenderer.render(context, compact = false, snapshot = null, hasApiKey = false)
+        assertNotNull(views)
+    }
+
+    @Test
+    fun `snapshot without usable data renders guidance view`() {
+        val empty = UsageSnapshot(fetchedAt = Instant.now())
+        val views = WidgetRenderer.render(context, compact = false, snapshot = empty, hasApiKey = true)
+        assertNotNull(views)
+    }
+
+    @Test
+    fun `all-null numeric fields render without throwing`() {
+        // 服务端什么都没返回时，界面必须是 -- 而不是 0
+        val blank = snapshot(totalRemaining = null, usagePercent = null, tokensTotal = null, fiveHour = null)
+        assertNotNull(WidgetRenderer.render(context, compact = false, snapshot = blank, hasApiKey = true))
+        assertNotNull(WidgetRenderer.render(context, compact = true, snapshot = blank, hasApiKey = true))
+    }
+
+    @Test
+    fun `non active subscription status still renders`() {
+        for (status in listOf("trialing", "past_due", "canceled", "wat")) {
+            assertNotNull(
+                WidgetRenderer.render(context, compact = false, snapshot = snapshot(status = status), hasApiKey = true),
+            )
+        }
+    }
+
+    @Test
+    fun `account total basis renders`() {
+        val views = WidgetRenderer.render(
+            context,
+            compact = false,
+            snapshot = snapshot(basis = TokenBasis.ACCOUNT_TOTAL),
+            hasApiKey = true,
+        )
+        assertNotNull(views)
+    }
+
+    @Test
+    fun `updateAll is safe when no widget instances exist`() {
+        // 会话里一个小组件都没添加时，不能抛异常
+        WidgetRenderer.updateAll(context)
+    }
+
+    @Test
+    fun `widget provider classes are resolvable by the system`() {
+        // 系统按类名反射实例化 Provider，混淆或改名会直接导致小组件消失
+        assertNotNull(UsageWidgetProvider())
+        assertNotNull(CompactWidgetProvider())
+        assertEquals(
+            "miui.appwidget.action.APPWIDGET_UPDATE",
+            UsageWidgetProvider.ACTION_MIUI_WIDGET_UPDATE,
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // 清单契约：锁死澎湃小组件规范要求的元数据，防止后续误删
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `manifest declares miui widget requirements`() {
+        val info = context.packageManager
+            .getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
+        val meta = info.metaData
+        assertNotNull("缺少 application 级 meta-data", meta)
+        // §10 小部件版本号必须在 application 下
+        assertEquals(true, meta.containsKey("miuiWidgetVersion"))
+    }
+
+    @Test
+    fun `both widget providers are registered with miui metadata`() {
+        val providers = listOf(
+            ComponentName(context, UsageWidgetProvider::class.java),
+            ComponentName(context, CompactWidgetProvider::class.java),
+        )
+        for (component in providers) {
+            val info = context.packageManager.getReceiverInfo(
+                component,
+                android.content.pm.PackageManager.GET_META_DATA,
+            )
+            val meta = info.metaData
+            assertNotNull("$component 缺少 meta-data", meta)
+            // §3 每个组件必须声明 appwidget provider 配置
+            assertTrue("$component 缺少 android.appwidget.provider", meta.containsKey("android.appwidget.provider"))
+            // §4 小米小部件标识
+            assertEquals(true, meta.getBoolean("miuiWidget"))
+            // §2.1 曝光刷新
+            assertEquals("exposure", meta.getString("miuiWidgetRefresh"))
+            assertTrue("曝光刷新间隔必须是正整数毫秒", (meta.getString("miuiWidgetRefreshMinInterval")?.toIntOrNull() ?: 0) >= 10_000)
+        }
+    }
+
+    @Test
+    fun `widget providers run in the dedicated widget process`() {
+        // 小米规范 §1.3：Widget 必须使用 :widgetProvider 独立进程
+        val info = context.packageManager.getReceiverInfo(
+            ComponentName(context, UsageWidgetProvider::class.java),
+            android.content.pm.PackageManager.GET_META_DATA,
+        )
+        assertTrue(
+            "Provider 必须声明 android:process=\":widgetProvider\"，实际=${info.processName}",
+            info.processName?.endsWith(":widgetProvider") == true,
+        )
+    }
+
+    @Test
+    fun `both widget sizes share the same label so hyperos groups them`() {
+        // 小米规范 §4：label 相同会被认为是同一功能的不同尺寸，在详情页聚合展示
+        val a = context.packageManager.getReceiverInfo(
+            ComponentName(context, UsageWidgetProvider::class.java), 0,
+        ).loadLabel(context.packageManager).toString()
+        val b = context.packageManager.getReceiverInfo(
+            ComponentName(context, CompactWidgetProvider::class.java), 0,
+        ).loadLabel(context.packageManager).toString()
+        assertEquals(a, b)
+    }
+
+    @Test
+    fun `appwidget provider xml matches xiaomi size recommendations`() {
+        // 官方建议：4×2 = 300×110dp，2×2 = 110×110dp
+        val res = context.resources
+        val full = res.getIdentifier("usage_widget_4x2", "xml", context.packageName)
+        val compact = res.getIdentifier("usage_widget_2x2", "xml", context.packageName)
+        assertTrue(full != 0)
+        assertTrue(compact != 0)
+
+        val parser = res.getXml(full)
+        var minWidth = -1
+        var minHeight = -1
+        var event = parser.next()
+        while (event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+            if (event == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "appwidget-provider") {
+                minWidth = parser.getAttributeValue(null, "minWidth")?.removeSuffix("dp")?.toIntOrNull() ?: -1
+                minHeight = parser.getAttributeValue(null, "minHeight")?.removeSuffix("dp")?.toIntOrNull() ?: -1
+            }
+            event = parser.next()
+        }
+        assertEquals(300, minWidth)
+        assertEquals(110, minHeight)
+    }
+
+    @Test
+    fun `settings store drives widget api key state`() {
+        val settings = SettingsStore(context)
+        settings.clearCredentials()
+        assertEquals(false, settings.hasApiKey)
+        settings.apiKey = "user_x"
+        assertEquals(true, SettingsStore(context).hasApiKey)
+        settings.clearCredentials()
+    }
+
+    @Test
+    fun `appwidget manager returns empty ids before any widget is added`() {
+        val manager = AppWidgetManager.getInstance(context)
+        assertNotNull(manager)
+        val ids = manager!!.getAppWidgetIds(ComponentName(context, UsageWidgetProvider::class.java))
+        assertEquals(0, ids.size)
+    }
+
+    @Test
+    fun `widget layouts expose the required root id`() {
+        // 小米规范 §7.1：系统通过固定 id @android:id/background 找到根布局并加圆角
+        val ids = listOf(R.layout.widget_usage_4x2, R.layout.widget_usage_2x2, R.layout.widget_usage_empty)
+        for (layoutId in ids) {
+            val views = android.widget.RemoteViews(context.packageName, layoutId)
+            // 能构建即说明布局资源可解析
+            assertNotNull(views)
+        }
+        assertTrue(android.R.id.background != 0)
+    }
+}

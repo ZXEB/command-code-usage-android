@@ -21,7 +21,11 @@
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="34">
 
-        <!-- 小米小部件版本号：必须放在 application 下，小部件有变动就要 +1 -->
+        <!--
+          小米小部件版本号（官方规范 §10）。
+          必须放在 <application> 下，而不是某个 provider 下；
+          小部件功能有变动就要 +1，否则有被下线风险。
+        -->
         <meta-data
             android:name="miuiWidgetVersion"
             android:value="1" />
@@ -36,6 +40,81 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          ============================ 4×2 小组件（主） ============================
+          逐条对齐小米《小部件技术规范与系统能力说明》：
+          - android:process=":widgetProvider"   -> §1.3 独立进程
+          - miuiWidget = true                    -> §4   小米小部件标识
+          - miuiWidgetRefresh = exposure         -> §2.1 曝光刷新（系统已去掉定时刷新）
+          - miuiWidgetRefreshMinInterval         -> §2.1 曝光刷新间隔（毫秒，最短 10s）
+          - miui.appwidget.action.APPWIDGET_UPDATE -> §2.2 曝光刷新广播
+          android:label 与 2×2 保持一致 -> §4 同功能不同尺寸会在详情页聚合
+        -->
+        <receiver
+            android:name=".widget.UsageWidgetProvider"
+            android:label="@string/widget_label"
+            android:process=":widgetProvider"
+            android:exported="false">
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/usage_widget_4x2" />
+            <meta-data
+                android:name="miuiWidget"
+                android:value="true" />
+            <meta-data
+                android:name="miuiWidgetRefresh"
+                android:value="exposure" />
+            <meta-data
+                android:name="miuiWidgetRefreshMinInterval"
+                android:value="60000" />
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ============================ 2×2 小组件（精简） ============================ -->
+        <receiver
+            android:name=".widget.CompactWidgetProvider"
+            android:label="@string/widget_label"
+            android:process=":widgetProvider"
+            android:exported="false">
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/usage_widget_2x2" />
+            <meta-data
+                android:name="miuiWidget"
+                android:value="true" />
+            <meta-data
+                android:name="miuiWidgetRefresh"
+                android:value="exposure" />
+            <meta-data
+                android:name="miuiWidgetRefreshMinInterval"
+                android:value="60000" />
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          WorkManager 在小米小部件规范下应运行在 widgetProvider 进程，
+          这样曝光刷新触发的内容更新不会拉起应用主进程。
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            android:process=":widgetProvider"
+            tools:node="merge" />
+
+        <!-- WorkManager 的系统调度组件也放到 widgetProvider 进程 -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:process=":widgetProvider"
+            tools:node="merge" />
+
     </application>
 
 </manifest>

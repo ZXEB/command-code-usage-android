@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 澎湃 / 小米小部件 2×2（官方建议 110×110dp）。精简版视图。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:maxResizeWidth="300dp"
+    android:maxResizeHeight="180dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_usage_2x2"
+    android:previewLayout="@layout/widget_usage_2x2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description_compact" />

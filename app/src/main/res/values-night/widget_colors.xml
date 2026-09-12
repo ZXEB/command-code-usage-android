@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 小组件配色。深色模式：半透明深色卡片，桌面壁纸仍能透出一点 -->
+    <color name="widget_background_color">#F21C1C1E</color>
+    <color name="widget_text_primary">#E6FFFFFF</color>
+    <color name="widget_text_secondary">#99FFFFFF</color>
+    <color name="widget_text_tertiary">#66FFFFFF</color>
+    <color name="widget_progress_track">#33FFFFFF</color>
+    <color name="widget_progress_fill">#5C9DFF</color>
+</resources>

@@ -1,4 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">CC 用量</string>
+
+    <!-- 两个尺寸共用同一个 label，澎湃详情页会据此把同功能的不同尺寸聚合在一起 -->
+    <string name="widget_label">Command Code 用量</string>
+    <string name="widget_description">显示套餐剩余额度与本计费周期 token</string>
+    <string name="widget_description_compact">精简显示剩余额度与本计费周期 token</string>
+
+    <!-- 小组件占位文案 -->
+    <string name="widget_placeholder_plan">Command Code</string>
+    <string name="widget_placeholder_value">--</string>
+    <string name="widget_tokens_caption">本期 tokens</string>
+    <string name="widget_percent_caption">月度剩余</string>
+    <string name="widget_empty_title">CC 用量</string>
+    <string name="widget_empty_hint">点此打开应用，填入 API Key 后即可显示用量</string>
+    <string name="widget_stale_badge">⚠ 旧数据</string>
+
+    <!-- 应用内 -->
+    <string name="tab_overview">概览</string>
+    <string name="tab_detail">明细</string>
+    <string name="tab_settings">设置</string>
+    <string name="action_refresh">刷新</string>
+    <string name="action_save">保存</string>
+    <string name="action_add_widget">添加桌面小组件</string>
+    <string name="action_clear_cache">清除缓存</string>
 </resources>
