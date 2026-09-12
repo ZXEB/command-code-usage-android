@@ -12,19 +12,23 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.zxeb.ccusage.data.SettingsStore
 import dev.zxeb.ccusage.data.SnapshotStore
+import dev.zxeb.ccusage.model.UsageError
 import dev.zxeb.ccusage.net.CommandCodeClient
 import dev.zxeb.ccusage.net.OkHttpTransport
 import java.util.concurrent.TimeUnit
 
 /**
- * 小组件的后台刷新。
+ * 小组件的后台联网刷新。
  *
  * 为什么必须有它：小米小部件**去掉了系统原有的定时刷新**（规范 §2.1），只保留曝光刷新。
  * 用户不划到那一页就不会有新数据，所以需要一条兜底路径：
- * - **周期任务**：15 分钟一次（WorkManager 的最小周期），跟随用户在设置里的自动刷新间隔；
+ * - **周期任务**：最短 15 分钟（WorkManager 下限），跟随设置里的自动刷新间隔；
  * - **一次性任务**：曝光刷新或点击刷新时立即触发。
  *
- * 这个 Worker 声明在 `:widgetProvider` 进程（AndroidManifest 里配置），符合小米规范
+ * 职责边界（很重要）：**只有这个 Worker 联网**。它拿到数据后写缓存，然后调
+ * [WidgetRenderer.updateAll] 重绘 —— 刷新的联网部分与绘制部分是分开的。
+ *
+ * 这个 Worker 声明在 `:widgetProvider` 进程（见 AndroidManifest），符合小米规范
  * §1「Widget 进程只能运行 Widget 内容准备和刷新相关的逻辑」。
  */
 class WidgetRefreshWorker(
@@ -43,11 +47,14 @@ class WidgetRefreshWorker(
                 metricsToken = settings.metricsToken.ifBlank { null },
             )
             SnapshotStore(applicationContext).save(snapshot)
-            // 抓到新数据后重绘小组件
+            // 用刚写入的缓存重绘
             WidgetRenderer.updateAll(applicationContext)
             Result.success()
+        } catch (e: UsageError.Unauthorized) {
+            // Key 失效：重试没有意义，保留旧数据等用户去设置页更新
+            Result.success()
         } catch (e: Exception) {
-            // 网络抖动作 retry；鉴权失败重试没意义，但也不该把整个任务标失败
+            // 账单接口很慢，超时是常态：退避重试，超过上限就放弃（曝光刷新还会再来）
             if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.success()
         }
     }
@@ -56,8 +63,9 @@ class WidgetRefreshWorker(
         private const val MAX_RETRIES = 2
         private const val ONE_TIME_WORK = "cc_widget_refresh_once"
         private const val PERIODIC_WORK = "cc_widget_refresh_periodic"
+        private const val MIN_PERIODIC_MINUTES = 15L
 
-        /** 立即刷新一次（曝光刷新 / 用户点击时调用）。已排队则不重复入队。 */
+        /** 立即刷新一次。已排队则不重复入队（曝光刷新触发很频繁）。 */
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<WidgetRefreshWorker>()
                 .setConstraints(
@@ -103,7 +111,5 @@ class WidgetRefreshWorker(
                 )
             }
         }
-
-        private const val MIN_PERIODIC_MINUTES = 15L
     }
 }

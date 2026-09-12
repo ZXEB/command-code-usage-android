@@ -99,20 +99,27 @@
         </receiver>
 
         <!--
-          WorkManager 在小米小部件规范下应运行在 widgetProvider 进程，
-          这样曝光刷新触发的内容更新不会拉起应用主进程。
+          WorkManager 的组件显式声明在 :widgetProvider 进程。
+
+          这么做是为了让「小组件刷新」全程不拉起应用主进程 —— 曝光刷新触发的联网更新
+          由该进程内的 CoroutineWorker 完成，符合小米小部件规范 §1「Widget 进程只能运行
+          Widget 内容准备和刷新相关的逻辑」，也满足其 ≤35M 的内存约束。
+
+          这里用**显式声明**而不是 tools:node="merge"：后者只能覆盖已有节点的属性，
+          无法给 androidx.startup 自动生成的 provider 添加 android:process。
+          显式声明会替换掉库里的节点，因此 authorities 必须与库保持一致
+          （${applicationId}.androidx-startup）。
         -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
-            android:process=":widgetProvider"
-            tools:node="merge" />
+            android:process=":widgetProvider" />
 
-        <!-- WorkManager 的系统调度组件也放到 widgetProvider 进程 -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:process=":widgetProvider"
+            android:foregroundServiceType="shortService"
             tools:node="merge" />
 
     </application>

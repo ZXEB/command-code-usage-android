@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.util.Log
 import android.widget.RemoteViews
 import dev.zxeb.ccusage.MainActivity
@@ -13,11 +14,9 @@ import dev.zxeb.ccusage.R
 import dev.zxeb.ccusage.data.SettingsStore
 import dev.zxeb.ccusage.data.SnapshotStore
 import dev.zxeb.ccusage.model.DataSource
+import dev.zxeb.ccusage.model.Format
+import dev.zxeb.ccusage.model.TokenBasis
 import dev.zxeb.ccusage.model.UsageSnapshot
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import java.time.Instant
 
 /**
@@ -29,7 +28,12 @@ import java.time.Instant
  */
 object WidgetRenderer {
 
-    /** 小米规范 §7.2 要求的内容区 id：系统据此画圆角，必须是 @android:id/background。 */
+    private const val TAG = "CcWidget"
+
+    /**
+     * 小米规范 §7.1 要求的内容区 id：系统据此统一加圆角。
+     * 三个布局的根节点都声明了 `android:id="@android:id/background"`。
+     */
     private const val ROOT_ID = android.R.id.background
 
     /**
@@ -54,9 +58,9 @@ object WidgetRenderer {
         val views = RemoteViews(context.packageName, layout)
 
         if (compact) {
-            renderCompact(context, views, snapshot, hasApiKey)
+            renderCompact(views, snapshot)
         } else {
-            renderFull(context, views, snapshot, hasApiKey)
+            renderFull(views, snapshot, hasApiKey)
         }
 
         views.setOnClickPendingIntent(ROOT_ID, openAppIntent(context))
@@ -67,35 +71,20 @@ object WidgetRenderer {
     // 4×2：套餐 · 月度剩余 · 进度 · 本期 token · 5小时窗口 · 更新时间
     // ------------------------------------------------------------------
 
-    private fun renderFull(
-        context: Context,
-        views: RemoteViews,
-        snapshot: UsageSnapshot,
-        hasApiKey: Boolean,
-    ) {
-        val planLabel = buildString {
-            append(snapshot.planName ?: "Command Code")
-            snapshot.subscriptionStatus?.let { status ->
-                if (status.isNotBlank() && !status.equals("active", ignoreCase = true)) {
-                    append("（").append(statusLabel(status)).append("）")
-                }
-            }
-        }
-        views.setTextViewText(R.id.widget_plan, planLabel)
+    private fun renderFull(views: RemoteViews, snapshot: UsageSnapshot, hasApiKey: Boolean) {
+        views.setTextViewText(R.id.widget_plan, planLabel(snapshot))
 
-        // 剩余额度：优先显示金额，金额缺失时才退回百分比
-        val remaining = snapshot.totalRemaining
         val percent = snapshot.usagePercent
         views.setTextViewText(
             R.id.widget_remaining,
             when {
-                remaining != null -> dev.zxeb.ccusage.model.Format.usd(remaining)
+                snapshot.totalRemaining != null -> Format.usd(snapshot.totalRemaining)
                 percent != null -> "${(100.0 - percent).toInt()}%"
-                else -> "--"
+                else -> Format.UNKNOWN
             },
         )
 
-        // 月度进度条 = 已用比例
+        // 进度条 = 已用比例；数据缺失时走不确定态，而不是画成 0%
         views.setProgressBar(
             R.id.widget_monthly_progress,
             100,
@@ -103,34 +92,28 @@ object WidgetRenderer {
             percent == null,
         )
 
-        // 本期 token（官方数据，以 M 显示）
-        views.setTextViewText(
-            R.id.widget_tokens,
-            dev.zxeb.ccusage.model.Format.millions(snapshot.tokensTotal),
-        )
+        // 本计费周期 tokens（官方数据，以 M 显示）
+        views.setTextViewText(R.id.widget_tokens, Format.millions(snapshot.tokensTotal))
         views.setTextViewText(
             R.id.widget_tokens_label,
-            if (snapshot.tokenBasis == dev.zxeb.ccusage.model.TokenBasis.ACCOUNT_TOTAL) {
-                "累计 tokens"
-            } else {
-                "本期 tokens"
-            },
+            if (snapshot.tokenBasis == TokenBasis.ACCOUNT_TOTAL) "累计 tokens" else "本期 tokens",
         )
 
         // 5 小时窗口
-        // 注意：percent 是带自定义 getter 的计算属性，不能直接智能转换，先取到局部变量
+        // 注意：RateWindow.percent 是带自定义 getter 的计算属性，无法智能转换，
+        // 必须先把值取到局部变量再判空。
         val fiveHourPercent = snapshot.fiveHour?.percent
         views.setTextViewText(
             R.id.widget_fivehour,
             when {
                 fiveHourPercent != null -> "5小时 ${fiveHourPercent.toInt()}%"
                 !hasApiKey -> "未配置 API Key"
-                else -> "5小时 --"
+                else -> "5小时 ${Format.UNKNOWN}"
             },
         )
 
-        // 更新时间 + 陈旧标记
-        val stamp = dev.zxeb.ccusage.model.Format.resetAt(snapshot.fetchedAt, Instant.now())
+        // 更新时间；数据陈旧时补一个角标
+        val stamp = Format.resetAt(snapshot.fetchedAt, Instant.now())
         views.setTextViewText(
             R.id.widget_updated,
             if (snapshot.source == DataSource.STALE) "$stamp ⚠" else stamp,
@@ -141,20 +124,14 @@ object WidgetRenderer {
     // 2×2：套餐 · 剩余百分比（大字）· 进度 · 本期 token
     // ------------------------------------------------------------------
 
-    private fun renderCompact(
-        context: Context,
-        views: RemoteViews,
-        snapshot: UsageSnapshot,
-        hasApiKey: Boolean,
-    ) {
+    private fun renderCompact(views: RemoteViews, snapshot: UsageSnapshot) {
         views.setTextViewText(R.id.widget_plan, snapshot.planName ?: "Command Code")
 
         val percent = snapshot.usagePercent
         views.setTextViewText(
             R.id.widget_percent,
-            if (percent != null) "${(100.0 - percent).toInt()}%" else "--",
+            if (percent != null) "${(100.0 - percent).toInt()}%" else Format.UNKNOWN,
         )
-        views.setTextViewText(R.id.widget_percent_caption, "月度剩余")
 
         views.setProgressBar(
             R.id.widget_monthly_progress,
@@ -163,10 +140,15 @@ object WidgetRenderer {
             percent == null,
         )
 
-        views.setTextViewText(
-            R.id.widget_tokens,
-            dev.zxeb.ccusage.model.Format.millions(snapshot.tokensTotal),
-        )
+        views.setTextViewText(R.id.widget_tokens, Format.millions(snapshot.tokensTotal))
+    }
+
+    private fun planLabel(snapshot: UsageSnapshot): String = buildString {
+        append(snapshot.planName ?: "Command Code")
+        val status = snapshot.subscriptionStatus
+        if (!status.isNullOrBlank() && !status.equals("active", ignoreCase = true)) {
+            append("（").append(statusLabel(status)).append("）")
+        }
     }
 
     private fun statusLabel(status: String): String = when (status.lowercase()) {
@@ -190,7 +172,12 @@ object WidgetRenderer {
         )
     }
 
-    /** 渲染并推送给所有已添加的实例（4×2 与 2×2 各推各的布局）。 */
+    /**
+     * 用缓存重新渲染所有已添加的实例（4×2 与 2×2 各推各的布局）。
+     *
+     * 这是小组件唯一的绘制入口 —— 它是**纯本地操作**，不联网，因此可以被曝光刷新、
+     * Provider 回调、WorkManager 完成回调任意调用。
+     */
     fun updateAll(context: Context) {
         val manager = AppWidgetManager.getInstance(context) ?: return
         val snapshot = SnapshotStore(context).load()
@@ -215,37 +202,42 @@ object WidgetRenderer {
         runCatching { manager.updateAppWidget(component, views) }
             .onFailure { Log.w(TAG, "updateAppWidget 失败: ${it.message}") }
     }
-
-    private const val TAG = "CcWidget"
 }
 
 /**
- * 4×2 小组件（主）。澎湃小部件规范要求的元数据见 AndroidManifest。
+ * 小组件通用行为。
  *
  * 关键适配：小米小部件**去掉了系统原有的定时刷新**，改为「曝光刷新」——
  * 用户滑到有 Widget 的桌面页时，系统发 `miui.appwidget.action.APPWIDGET_UPDATE`。
- * 因此 [onReceive] 必须显式处理这个 action（见小米规范 §2.2）。
+ * 因此 [onReceive] 必须显式处理这个 action（小米规范 §2.2）。
+ *
+ * **渲染与联网严格分离**：每次回调第一件事都是「用缓存立刻重绘」，保证任何情况下桌面
+ * 都不会空白；联网刷新另有 [WidgetRefreshWorker] 负责。这样即使网络很慢或超时，
+ * 小组件也始终有话可显示。
  */
-class UsageWidgetProvider : AppWidgetProvider() {
+abstract class BaseUsageWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        // 先用缓存渲染，保证任何情况下都不空白
+        // 1) 本地立刻重绘，保证不空白
         WidgetRenderer.updateAll(context)
-        // 再触发一次后台拉取，拿到新数据后会再次刷新
+        // 2) 再排一个后台任务去拉新数据，成功后 Worker 会再重绘一次
         WidgetRefreshWorker.enqueue(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_MIUI_WIDGET_UPDATE) {
-            // 澎湃曝光刷新：包含被曝光实例的 id 数组（小米规范 §2.2 示例）
+            // 澎湃曝光刷新：intent 里带被曝光实例的 id 数组（小米规范 §2.2 示例）
             val ids = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS)
             val manager = AppWidgetManager.getInstance(context)
             if (manager != null) {
                 onUpdate(context, manager, ids ?: IntArray(0))
+            } else {
+                // 拿不到 manager 也要至少重绘缓存
+                WidgetRenderer.updateAll(context)
             }
         } else {
             super.onReceive(context, intent)
@@ -256,10 +248,10 @@ class UsageWidgetProvider : AppWidgetProvider() {
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
-        newOptions: android.os.Bundle,
+        newOptions: Bundle,
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        // 尺寸变化后重新渲染（4×6 / 5×6 网格、有无搜索框等布局差异由 match_parent 兜住）
+        // 尺寸变化后重新渲染：match_parent 布局天然兼容 4×6 / 5×6 网格、有无搜索框等差异
         WidgetRenderer.updateAll(context)
     }
 
@@ -269,38 +261,8 @@ class UsageWidgetProvider : AppWidgetProvider() {
     }
 }
 
-/** 2×2 精简版。与 [UsageWidgetProvider] 共用同一个 `android:label`，澎湃详情页会聚合展示。 */
-class CompactWidgetProvider : AppWidgetProvider() {
+/** 4×2 小组件（主）。澎湃小部件规范要求的元数据见 AndroidManifest。 */
+class UsageWidgetProvider : BaseUsageWidgetProvider()
 
-    override fun onUpdate(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray,
-    ) {
-        WidgetRenderer.updateAll(context)
-        WidgetRefreshWorker.enqueue(context)
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == UsageWidgetProvider.ACTION_MIUI_WIDGET_UPDATE) {
-            val ids = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS)
-            val manager = AppWidgetManager.getInstance(context)
-            if (manager != null) {
-                onUpdate(context, manager, ids ?: IntArray(0))
-            }
-        } else {
-            super.onReceive(context, intent)
-        }
-    }
-}
-
-/** 抓取完成后刷新小组件（主进程调用）。 */
-fun refreshWidgetsAsync(context: Context) {
-    val pending = goAsyncScope()
-    pending.launch { runCatching { WidgetRenderer.updateAll(context) } }
-}
-
-private var asyncScope: CoroutineScope? = null
-
-private fun goAsyncScope(): CoroutineScope =
-    asyncScope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default).also { asyncScope = it }
+/** 2×2 精简版。与 [UsageWidgetProvider] 共用 `android:label`，澎湃详情页会聚合展示。 */
+class CompactWidgetProvider : BaseUsageWidgetProvider()
