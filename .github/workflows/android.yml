@@ -18,6 +18,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      VERSION_CODE: ${{ github.run_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -39,30 +45,41 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
-      - name: Build release APK
-        id: release
-        continue-on-error: true
-        run: ./gradlew :app:assembleRelease --stacktrace
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      # 签名密钥齐了就出 release APK（已签名、已混淆）；没配密钥就只出 debug。
+      # 这里不用 continue-on-error：release 失败必须让 CI 变红，
+      # 否则「只产出了 debug 包」会被伪装成成功。
+      - name: Build APKs
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "签名密钥已配置 -> assembleRelease"
+            ./gradlew :app:assembleRelease --stacktrace
+          else
+            echo "::warning::未配置签名密钥，仅构建 debug APK"
+            ./gradlew :app:assembleDebug --stacktrace
+          fi
 
-      - name: Build debug APK (fallback when release is unsigned)
-        if: steps.release.outcome == 'failure'
-        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Verify release APK is signed
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+            echo "checking $APK"
+            # apksigner 随 Android SDK build-tools 提供；用 v2 方案校验
+            APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$APKSIGNER" ]; then
+              "$APKSIGNER" verify --verbose "$APK"
+            else
+              echo "::error::apksigner not found"
+              exit 1
+            fi
+          fi
 
-      - name: Locate APKs
-        id: apks
+      - name: Collect APKs
         run: |
           mkdir -p out
           found=0
           for f in app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk; do
             if [ -f "$f" ]; then
-              base=$(basename "$f")
-              cp "$f" "out/$base"
-              echo "collected: $base"
+              cp "$f" "out/$(basename "$f")"
               found=1
             fi
           done
