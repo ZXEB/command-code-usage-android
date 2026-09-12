@@ -3,47 +3,67 @@ package dev.zxeb.ccusage.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
+import dev.zxeb.ccusage.CcUsageApp
+import dev.zxeb.ccusage.R
+import dev.zxeb.ccusage.model.DataSource
+import dev.zxeb.ccusage.ui.components.GlassBottomBar
+import dev.zxeb.ccusage.widget.WidgetRefreshWorker
+import dev.zxeb.ccusage.widget.refreshWidgetsAsync
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.NavigationItem
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.VerticalSplit
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import java.time.Instant
 
 /**
  * 应用根节点。
  *
- * 页面内容容器通过 [layerBackdrop] 把自己的绘制内容录进 [rememberLayerBackdrop] 生成的图层，
- * 底栏 [dev.zxeb.ccusage.ui.components.GlassBottomBar] 再对这个图层做实时模糊 —— 这就是液态玻璃。
+ * 页面内容容器通过 [layerBackdrop] 把绘制内容录进图层，[GlassBottomBar] 再实时模糊它 —— 这就是液态玻璃。
  *
- * 内容区刻意**不**为底栏留 padding（只留顶部），这样滚动内容会从玻璃底栏下面穿过去，
- * 模糊才有东西可折射；可滚动容器自己用 contentPadding 兜住最后一项。
+ * 内容区刻意**不**为底栏留 padding（只留顶部），让滚动内容从玻璃底栏下穿过，模糊才有东西可折射；
+ * 每个页面自己在末尾留出 90dp 空白，避免最后一项被底栏永久遮挡。
  */
 @Composable
 fun CcUsageRoot() {
+    val context = LocalContext.current
+    val app = context.applicationContext as CcUsageApp
+    val repository = remember { app.repository }
+
+    val state by repository.state.collectAsStateSafe()
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var selectedIndex by remember { mutableIntStateOf(0) }
-    var taps by remember { mutableIntStateOf(0) }
+    // 每分钟走一次，用于倒计时刷新（不需要重新联网）
+    var now by remember { mutableStateOf(Instant.now()) }
 
     val backgroundColor = MiuixTheme.colorScheme.background
     val backdrop = rememberLayerBackdrop {
@@ -54,16 +74,45 @@ fun CcUsageRoot() {
 
     val items = remember {
         listOf(
-            NavigationItem("概览", MiuixIcons.Home),
-            NavigationItem("明细", MiuixIcons.Info),
-            NavigationItem("设置", MiuixIcons.Settings),
+            NavigationItem(context.getString(R.string.tab_overview), MiuixIcons.VerticalSplit),
+            NavigationItem(context.getString(R.string.tab_detail), MiuixIcons.Info),
+            NavigationItem(context.getString(R.string.tab_settings), MiuixIcons.Settings),
         )
+    }
+
+    // 抓到新数据后把结果推给桌面小组件（小米规范 §10：App 主动刷新小部件）
+    DisposableEffect(repository) {
+        repository.onSnapshotUpdated = { refreshWidgetsAsync(context) }
+        onDispose { repository.onSnapshotUpdated = null }
+    }
+
+    // 首帧拉一次
+    LaunchedEffect(Unit) {
+        repository.primeFromCache()
+        repository.refresh()
+    }
+
+    // 倒计时每分钟重算
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            now = Instant.now()
+        }
+    }
+
+    // 刷新失败时用 Snackbar 提示（不阻塞界面，旧数据仍在）
+    LaunchedEffect(state.error, state.source) {
+        val error = state.error
+        if (error != null && state.source != DataSource.LIVE) {
+            snackbarHostState.showSnackbar(error)
+        }
     }
 
     Scaffold(
         topBar = { TopAppBar(title = items[selectedIndex].label) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            dev.zxeb.ccusage.ui.components.GlassBottomBar(
+            GlassBottomBar(
                 backdrop = backdrop,
                 items = items,
                 selectedIndex = selectedIndex,
@@ -77,46 +126,58 @@ fun CcUsageRoot() {
                 .padding(top = innerPadding.calculateTopPadding())
                 .layerBackdrop(backdrop),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            PullToRefresh(
+                isRefreshing = state.refreshing,
+                onRefresh = {
+                    scope.launch {
+                        repository.refresh(force = true)
+                        // 顺手触发小组件的立即刷新
+                        WidgetRefreshWorker.enqueue(context)
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
             ) {
-                // 占位内容：Phase 1 用于验证 Miuix + blur 依赖链路可编译可运行
-                SmallTitle("构建校验")
-                Card {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Miuix 组件库已接入")
-                        Text(
-                            "液态玻璃底栏：这是一个用于验证渲染链路的占位页面。",
-                            style = MiuixTheme.textStyles.footnote1,
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    when (selectedIndex) {
+                        0 -> OverviewScreen(
+                            state = state,
+                            now = now,
+                            onOpenSettings = { selectedIndex = 2 },
+                        )
+
+                        1 -> DetailScreen(snapshot = state.snapshot, now = now)
+
+                        else -> SettingsScreen(
+                            onSaved = { scope.launch { repository.refresh(force = true) } },
+                            onCleared = {
+                                repository.clearCache()
+                                refreshWidgetsAsync(context)
+                            },
                         )
                     }
                 }
-                Card {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("交互测试：$taps")
-                        Button(onClick = { taps++ }) {
-                            Text("点我")
-                        }
-                    }
-                }
-                // 撑高页面，方便观察内容穿过玻璃底栏时的模糊效果
-                repeat(6) { index ->
-                    Card {
-                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text("占位条目 ${index + 1}")
-                            Text(
-                                "滚动这一段文字，观察底栏玻璃的折射与高光。",
-                                style = MiuixTheme.textStyles.footnote1,
-                            )
-                        }
-                    }
-                }
-                Box(Modifier.padding(bottom = 120.dp))
             }
         }
     }
+}
+
+/**
+ * `collectAsState` 的小包装。
+ *
+ * 单独抽出来是为了避免在各处重复导入 lifecycle-runtime-compose；
+ * Miuix 自带 `jetbrains-lifecycle-runtime`，这里用最朴素的 collect 方式即可。
+ */
+@Composable
+private fun <T> kotlinx.coroutines.flow.StateFlow<T>.collectAsStateSafe(): androidx.compose.runtime.State<T> {
+    val state = remember { mutableStateOf(value) }
+    LaunchedEffect(this) {
+        collect { state.value = it }
+    }
+    return state
 }
