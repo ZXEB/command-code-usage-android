@@ -50,12 +50,21 @@
           - miuiWidgetRefreshMinInterval         -> §2.1 曝光刷新间隔（毫秒，最短 10s）
           - miui.appwidget.action.APPWIDGET_UPDATE -> §2.2 曝光刷新广播
           android:label 与 2×2 保持一致 -> §4 同功能不同尺寸会在详情页聚合
+
+          ⚠️ android:exported 必须是 true：
+          系统由 AppWidgetServiceImpl.updateProvidersForPackageLocked() 通过
+          queryIntentReceivers(ACTION_APPWIDGET_UPDATE) 枚举小组件，该方法只带
+          GET_META_DATA / MATCH_DEBUG_TRIAGED_MISSING 等标记，**不会带上未导出组件**。
+          设成 false 的后果是：AppWidgetManager.getAppWidgetIds 仍能工作（所以代码里
+          「读实例」看起来正常），但桌面「添加小部件」列表里根本搜不到这个应用 ——
+          exported=false 的 receiver 无法从应用外解析。
+          这也是官方 appwidget 模板的写法（模板里显式标注 exported=true）。
         -->
         <receiver
             android:name=".widget.UsageWidgetProvider"
             android:label="@string/widget_label"
             android:process=":widgetProvider"
-            android:exported="false">
+            android:exported="true">
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/usage_widget_4x2" />
@@ -79,7 +88,7 @@
             android:name=".widget.CompactWidgetProvider"
             android:label="@string/widget_label"
             android:process=":widgetProvider"
-            android:exported="false">
+            android:exported="true">
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/usage_widget_2x2" />

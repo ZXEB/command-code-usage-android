@@ -110,6 +110,15 @@ fun CcUsageRoot() {
         }
     }
 
+    // 刷新动作：下拉刷新与底栏圆形按钮共用同一条路径
+    val doRefresh: () -> Unit = {
+        scope.launch {
+            repository.refresh(force = true)
+            // 顺手触发小组件的立即刷新
+            WidgetRefreshWorker.enqueue(context)
+        }
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = items[selectedIndex].label) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -119,6 +128,10 @@ fun CcUsageRoot() {
                 items = items,
                 selectedIndex = selectedIndex,
                 onSelect = { selectedIndex = it },
+                actionIcon = MiuixIcons.Refresh,
+                actionLabel = context.getString(R.string.action_refresh),
+                onAction = doRefresh,
+                actionEnabled = !state.refreshing,
             )
         },
     ) { innerPadding ->
@@ -130,13 +143,7 @@ fun CcUsageRoot() {
         ) {
             PullToRefresh(
                 isRefreshing = state.refreshing,
-                onRefresh = {
-                    scope.launch {
-                        repository.refresh(force = true)
-                        // 顺手触发小组件的立即刷新
-                        WidgetRefreshWorker.enqueue(context)
-                    }
-                },
+                onRefresh = doRefresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Column(

@@ -186,6 +186,27 @@ class WidgetRendererTest {
     }
 
     @Test
+    fun `widget providers must be exported or the launcher cannot discover them`() {
+        // 这是「桌面添加小部件列表里找不到本应用」的直接原因，必须有测试锁住。
+        //
+        // 系统由 AppWidgetServiceImpl.updateProvidersForPackageLocked() 通过
+        // queryIntentReceivers(ACTION_APPWIDGET_UPDATE) 枚举小组件，该方法使用的
+        // PackageManager 标记不包含未导出组件。exported=false 时：
+        //   - AppWidgetManager.getAppWidgetIds(...) 仍能拿到已添加实例（代码里读实例看似正常）
+        //   - 但桌面「添加小部件」根本解析不到这个 receiver，应用不会出现在列表里
+        for (component in listOf(
+            ComponentName(context, UsageWidgetProvider::class.java),
+            ComponentName(context, CompactWidgetProvider::class.java),
+        )) {
+            val info = context.packageManager.getReceiverInfo(component, 0)
+            assertTrue(
+                "$component 必须 android:exported=\"true\"，否则桌面的小部件列表里搜不到本应用",
+                info.exported,
+            )
+        }
+    }
+
+    @Test
     fun `both widget sizes share the same label so hyperos groups them`() {
         // 小米规范 §4：label 相同会被认为是同一功能的不同尺寸，在详情页聚合展示
         val a = context.packageManager.getReceiverInfo(
