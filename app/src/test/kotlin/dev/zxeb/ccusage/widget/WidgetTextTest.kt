@@ -174,6 +174,20 @@ class WidgetTextTest {
         assertEquals("本期 tokens", WidgetText.tokensCaption(TokenBasis.UNKNOWN))
     }
 
+    @Test
+    fun `2x2 token line carries the basis prefix`() {
+        // 2×2 宽度放不下「本期 tokens」这句说明，但光秃秃一个数字会被误读，所以压成两字前缀
+        assertEquals("本期 233.4M", WidgetText.tokensLine(TokenBasis.BILLING_PERIOD, 233_370_995L))
+        assertEquals("累计 233.4M", WidgetText.tokensLine(TokenBasis.ACCOUNT_TOTAL, 233_370_995L))
+        assertEquals("本期 233.4M", WidgetText.tokensLine(TokenBasis.UNKNOWN, 233_370_995L))
+    }
+
+    @Test
+    fun `2x2 token line stays a placeholder without data`() {
+        assertEquals("--", WidgetText.tokensLine(TokenBasis.BILLING_PERIOD, null))
+        assertEquals("--", WidgetText.tokensLine(TokenBasis.ACCOUNT_TOTAL, null))
+    }
+
     // ------------------------------------------------------------------
     // 更新时间戳
     // ------------------------------------------------------------------

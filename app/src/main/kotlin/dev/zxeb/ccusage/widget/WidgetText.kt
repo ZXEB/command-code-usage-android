@@ -19,7 +19,9 @@ import java.time.Instant
  * 口径约定（README「小部件显示内容」一节同步说明）：
  * - 窗口显示的是**剩余**（`100 - 已用%`，截断取整，与应用内 `(100.0 - percent).toInt()` 一致）；
  * - 进度条画的是**同一个剩余比例**，所以「数字大 = 条长」永远自洽；
- * - 颜色按**已用**比例分档（<70% 绿 / ≥70% 黄 / ≥90% 红），与应用内 `utilizationColor` 同阈值；
+ * - 颜色按**已用**比例分档（<70% 绿 / ≥70% 黄 / ≥90% 红），与应用内 `utilizationColor` 同阈值。
+ *   分档只作用于**数值文字**：RemoteViews 上没有 `setProgressTintList`（CI 实测编译期就 unresolved），
+ *   可靠的颜色动作只有 `setTextColor`，所以三根条形统一用品牌蓝；
  * - 任何拿不到的数值一律 `--`，**绝不显示 0**（0 会被误读成「用完了」）。
  */
 object WidgetText {
@@ -89,7 +91,7 @@ object WidgetText {
     /** 窗口的档位。 */
     fun utilization(window: RateWindow?): Utilization = utilizationOf(window?.percent)
 
-    /** 档位对应的颜色资源。 */
+    /** 档位对应的颜色资源（用于数值文字，见类注释）。 */
     fun colorRes(utilization: Utilization): Int = when (utilization) {
         Utilization.OK -> R.color.widget_ok
         Utilization.WARN -> R.color.widget_warn
@@ -132,6 +134,20 @@ object WidgetText {
     fun tokensCaption(basis: TokenBasis): String = when (basis) {
         TokenBasis.ACCOUNT_TOTAL -> "累计 tokens"
         else -> "本期 tokens"
+    }
+
+    /**
+     * 2×2 的 token 行：`"本期 233.4M"` / `"累计 233.4M"`。
+     *
+     * 4×2 里数字后面跟得下「本期 tokens」这句说明，2×2 的 86dp 宽度放不下，
+     * 但光秃秃一个 `233.4M` 又会被误读，所以把口径压成两个字的前缀。
+     * 没有数据时就是 `--`（不去掉前缀硬凑一个 0）。
+     */
+    fun tokensLine(basis: TokenBasis, total: Long?): String {
+        val value = Format.millions(total)
+        if (value == Format.UNKNOWN) return Format.UNKNOWN
+        val prefix = if (basis == TokenBasis.ACCOUNT_TOTAL) "累计" else "本期"
+        return "$prefix $value"
     }
 
     /**

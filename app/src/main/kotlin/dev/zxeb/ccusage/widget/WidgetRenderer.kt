@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.os.Bundle
 import android.util.Log
 import android.widget.RemoteViews
@@ -106,10 +105,11 @@ object WidgetRenderer {
             WidgetText.barProgress(window),
             WidgetText.barIsIndeterminate(window),
         )
-        // 上色属于锦上添花：个别桌面 / 版本对 RemoteViews 的颜色动作支持不一，
-        // 失败时只是少个颜色，绝不能让整次重绘挂掉。
+        // 严重度只由**数值文字的颜色**表达：RemoteViews 上可靠的颜色动作只有
+        // setTextColor 这一类（CI 实测 `setProgressTintList` 在 RemoteViews 上根本不存在，
+        // 编译期即 unresolved），所以三根条形统一用 widget_progress_fill 的品牌蓝，
+        // 免得为了上色去反射调用、在某些桌面上静默失效。
         runCatching { views.setTextColor(valueId, color) }
-        runCatching { views.setProgressTintList(barId, ColorStateList.valueOf(color)) }
     }
 
     // ------------------------------------------------------------------
@@ -144,9 +144,11 @@ object WidgetRenderer {
             WidgetText.remainingPercent(usedPercent) ?: 0,
             WidgetText.remainingPercent(usedPercent) == null,
         )
-        views.setTextViewText(R.id.widget_tokens, Format.millions(snapshot.tokensTotal))
+        views.setTextViewText(
+            R.id.widget_tokens,
+            WidgetText.tokensLine(snapshot.tokenBasis, snapshot.tokensTotal),
+        )
         runCatching { views.setTextColor(R.id.widget_percent, color) }
-        runCatching { views.setProgressTintList(R.id.widget_monthly_progress, ColorStateList.valueOf(color)) }
     }
 
     private fun planLabel(snapshot: UsageSnapshot): String = buildString {

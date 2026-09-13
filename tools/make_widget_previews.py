@@ -26,6 +26,7 @@ STROKE = (224, 224, 224, 255)
 TEXT_PRIMARY = (26, 26, 26, 255)
 TEXT_SECONDARY = (140, 140, 140, 255)
 TRACK = (227, 227, 227, 255)
+BAR_FILL = (27, 111, 240, 255)  # widget_progress_fill：三根条形统一品牌蓝
 OK = (47, 168, 79, 255)  # widget_ok  #2FA84F
 WARN = (240, 160, 32, 255)  # widget_warn
 ERROR = (229, 57, 53, 255)  # widget_error
@@ -112,9 +113,9 @@ def make_4x2():
 
     for index, (label, remaining, used) in enumerate(windows):
         cx = pad + index * (col_w + col_gap) + col_w / 2
-        color = utilization_color(used)
         draw_centered(draw, cx, band_top, label, f_label, TEXT_SECONDARY)
-        draw_centered(draw, cx, band_top + dp(11), f"{remaining}%", f_value, color)
+        # 严重度只体现在数字颜色上（RemoteViews 没有 setProgressTintList）
+        draw_centered(draw, cx, band_top + dp(11), f"{remaining}%", f_value, utilization_color(used))
         draw_bar(
             draw,
             pad + index * (col_w + col_gap),
@@ -122,7 +123,7 @@ def make_4x2():
             col_w,
             dp(4),
             remaining,
-            color,
+            BAR_FILL,
         )
 
     # 行3：本期 tokens
@@ -146,14 +147,13 @@ def make_2x2():
     draw.text((pad, pad), "5时 97% · 周 88%", font=f_line, fill=TEXT_SECONDARY)
 
     # 行2：月度剩余（大字）
-    color = utilization_color(24.0)
-    draw.text((pad, pad + dp(14)), "76%", font=f_big, fill=color)
+    draw.text((pad, pad + dp(14)), "76%", font=f_big, fill=utilization_color(24.0))
 
-    # 行3：月度进度条
-    draw_bar(draw, pad, pad + dp(49), content_w, dp(5), 76, color)
+    # 行3：月度进度条（统一品牌蓝）
+    draw_bar(draw, pad, pad + dp(49), content_w, dp(5), 76, BAR_FILL)
 
-    # 行4：本期 tokens
-    draw.text((pad, pad + dp(59)), "233.4M", font=f_tokens, fill=TEXT_PRIMARY)
+    # 行4：token 行带口径前缀
+    draw.text((pad, pad + dp(59)), "本期 233.4M", font=f_tokens, fill=TEXT_PRIMARY)
     return img
 
 
