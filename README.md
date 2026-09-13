@@ -161,6 +161,22 @@ Android 12+ 的桌面优先读 `previewLayout`（真布局），这张图只服�
 > 此前 workflow 只传了 `VERSION_CODE`、从未传 `VERSION_NAME`，于是每个 Release 的 APK 里
 > `versionName` 都是 gradle 的回退值 `1.0.0`（v1.0.3 的包就是这样，与实际 tag 不符）。现已修正。
 
+### 校验下载回来的 APK
+
+本地没有 Android SDK，也能对 Release 里下载的 APK 做一遍独立检查：
+
+```bash
+python tools/verify_apk.py app-release.apk 1.0.4
+```
+
+它不依赖 aapt/apksigner，自己解析二进制清单与 `resources.arsc`，检查四件事：
+清单里的 `versionName`/`versionCode`、小组件两个布局是否真的打进包里且引用了渲染器要用的
+每个 id（release 构建会把资源路径缩短成 `res/0K.xml`，所以按 id 数值而不是文件名判断）、
+新增中文串是否在资源表里、以及 v2/v3 签名块是否存在。
+
+> 例：v1.0.4 的包实测 `versionName=1.0.4 / versionCode=30`，4×2 布局含 10 个小组件 id 与 3 条进度条，
+> 2×2 含 4 个 id 与 1 条进度条，签名块 OK。
+
 ### 签名密钥
 
 release 构建需要以下 4 个仓库 secret（缺任一个则只构建 debug）：
