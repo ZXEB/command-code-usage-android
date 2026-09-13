@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.util.Log
 import android.widget.RemoteViews
@@ -13,11 +14,9 @@ import dev.zxeb.ccusage.MainActivity
 import dev.zxeb.ccusage.R
 import dev.zxeb.ccusage.data.SettingsStore
 import dev.zxeb.ccusage.data.SnapshotStore
-import dev.zxeb.ccusage.model.DataSource
 import dev.zxeb.ccusage.model.Format
-import dev.zxeb.ccusage.model.TokenBasis
+import dev.zxeb.ccusage.model.RateWindow
 import dev.zxeb.ccusage.model.UsageSnapshot
-import java.time.Instant
 
 /**
  * 小组件渲染器。
@@ -58,9 +57,9 @@ object WidgetRenderer {
         val views = RemoteViews(context.packageName, layout)
 
         if (compact) {
-            renderCompact(views, snapshot)
+            renderCompact(context, views, snapshot)
         } else {
-            renderFull(views, snapshot, hasApiKey)
+            renderFull(context, views, snapshot, hasApiKey)
         }
 
         views.setOnClickPendingIntent(ROOT_ID, openAppIntent(context))
@@ -68,79 +67,86 @@ object WidgetRenderer {
     }
 
     // ------------------------------------------------------------------
-    // 4×2：套餐 · 月度剩余 · 进度 · 本期 token · 5小时窗口 · 更新时间
+    // 4×2：套餐 · 5 小时 / 每周 / 每月 剩余% · 各窗进度条 · 本期 token · 更新时间
     // ------------------------------------------------------------------
 
-    private fun renderFull(views: RemoteViews, snapshot: UsageSnapshot, hasApiKey: Boolean) {
+    private fun renderFull(
+        context: Context,
+        views: RemoteViews,
+        snapshot: UsageSnapshot,
+        hasApiKey: Boolean,
+    ) {
         views.setTextViewText(R.id.widget_plan, planLabel(snapshot))
+        views.setTextViewText(R.id.widget_updated, WidgetText.updateStamp(snapshot, hasApiKey))
 
-        val percent = snapshot.usagePercent
-        views.setTextViewText(
-            R.id.widget_remaining,
-            when {
-                snapshot.totalRemaining != null -> Format.usd(snapshot.totalRemaining)
-                percent != null -> "${(100.0 - percent).toInt()}%"
-                else -> Format.UNKNOWN
-            },
-        )
-
-        // 进度条 = 已用比例；数据缺失时走不确定态，而不是画成 0%
-        views.setProgressBar(
-            R.id.widget_monthly_progress,
-            100,
-            percent?.toInt()?.coerceIn(0, 100) ?: 0,
-            percent == null,
-        )
+        // 三个窗口各占一列：数值 + 细进度条。文案与配色都走 WidgetText，
+        // 缺失数据由它统一回落到 `--` + 不确定态进度条。
+        bindWindow(context, views, snapshot.fiveHour, R.id.widget_fivehour, R.id.widget_bar_fivehour)
+        bindWindow(context, views, snapshot.weekly, R.id.widget_weekly, R.id.widget_bar_weekly)
+        bindWindow(context, views, snapshot.monthly, R.id.widget_monthly, R.id.widget_bar_monthly)
 
         // 本计费周期 tokens（官方数据，以 M 显示）
         views.setTextViewText(R.id.widget_tokens, Format.millions(snapshot.tokensTotal))
-        views.setTextViewText(
-            R.id.widget_tokens_label,
-            if (snapshot.tokenBasis == TokenBasis.ACCOUNT_TOTAL) "累计 tokens" else "本期 tokens",
-        )
+        views.setTextViewText(R.id.widget_tokens_label, WidgetText.tokensCaption(snapshot.tokenBasis))
+    }
 
-        // 5 小时窗口
-        // 注意：RateWindow.percent 是带自定义 getter 的计算属性，无法智能转换，
-        // 必须先把值取到局部变量再判空。
-        val fiveHourPercent = snapshot.fiveHour?.percent
-        views.setTextViewText(
-            R.id.widget_fivehour,
-            when {
-                fiveHourPercent != null -> "5小时 ${fiveHourPercent.toInt()}%"
-                !hasApiKey -> "未配置 API Key"
-                else -> "5小时 ${Format.UNKNOWN}"
-            },
+    /** 单个窗口：数值文案 + 按占用率上色 + 进度条（数据缺失时走不确定态）。 */
+    private fun bindWindow(
+        context: Context,
+        views: RemoteViews,
+        window: RateWindow?,
+        valueId: Int,
+        barId: Int,
+    ) {
+        val color = context.getColor(WidgetText.colorRes(WidgetText.utilization(window)))
+        views.setTextViewText(valueId, WidgetText.remainingPercentText(window))
+        views.setProgressBar(
+            barId,
+            100,
+            WidgetText.barProgress(window),
+            WidgetText.barIsIndeterminate(window),
         )
-
-        // 更新时间；数据陈旧时补一个角标
-        val stamp = Format.resetAt(snapshot.fetchedAt, Instant.now())
-        views.setTextViewText(
-            R.id.widget_updated,
-            if (snapshot.source == DataSource.STALE) "$stamp ⚠" else stamp,
-        )
+        // 上色属于锦上添花：个别桌面 / 版本对 RemoteViews 的颜色动作支持不一，
+        // 失败时只是少个颜色，绝不能让整次重绘挂掉。
+        runCatching { views.setTextColor(valueId, color) }
+        runCatching { views.setProgressTintList(barId, ColorStateList.valueOf(color)) }
     }
 
     // ------------------------------------------------------------------
-    // 2×2：套餐 · 剩余百分比（大字）· 进度 · 本期 token
+    // 2×2：5 小时 / 每周 一行 · 月度剩余百分比（大字）· 进度条 · 本期 token
     // ------------------------------------------------------------------
 
-    private fun renderCompact(views: RemoteViews, snapshot: UsageSnapshot) {
-        views.setTextViewText(R.id.widget_plan, snapshot.planName ?: "Command Code")
-
-        val percent = snapshot.usagePercent
+    private fun renderCompact(context: Context, views: RemoteViews, snapshot: UsageSnapshot) {
+        // 110dp 高度有限：套餐名与「月度剩余」说明行已从布局里去掉，
+        // 换来「5 小时 / 每周」这一行（见 README「小部件显示内容」）。
+        // 宽度同样有限（86dp），所以这里用短名（「5时」「周」），
+        // 完整名在 9sp 下会被 ellipsize 截成「5 小时 97% · 每周 8…」。
         views.setTextViewText(
-            R.id.widget_percent,
-            if (percent != null) "${(100.0 - percent).toInt()}%" else Format.UNKNOWN,
+            R.id.widget_windows,
+            WidgetText.compactWindowsLine(
+                fiveHour = snapshot.fiveHour,
+                weekly = snapshot.weekly,
+                fiveHourLabel = context.getString(R.string.widget_window_fivehour_short),
+                weeklyLabel = context.getString(R.string.widget_window_weekly_short),
+            ),
         )
 
+        // 月度剩余优先取服务端的 monthly 窗口；服务端不给时（本接口的常态）
+        // 回落到额度池口径的 usagePercent —— 两者本来就是同一个算法的两种来源。
+        val monthlyWindow = snapshot.monthly
+        val usedPercent = monthlyWindow?.percent ?: snapshot.usagePercent
+        val color = context.getColor(WidgetText.colorRes(WidgetText.utilizationOf(usedPercent)))
+
+        views.setTextViewText(R.id.widget_percent, WidgetText.remainingPercentText(usedPercent))
         views.setProgressBar(
             R.id.widget_monthly_progress,
             100,
-            percent?.toInt()?.coerceIn(0, 100) ?: 0,
-            percent == null,
+            WidgetText.remainingPercent(usedPercent) ?: 0,
+            WidgetText.remainingPercent(usedPercent) == null,
         )
-
         views.setTextViewText(R.id.widget_tokens, Format.millions(snapshot.tokensTotal))
+        runCatching { views.setTextColor(R.id.widget_percent, color) }
+        runCatching { views.setProgressTintList(R.id.widget_monthly_progress, ColorStateList.valueOf(color)) }
     }
 
     private fun planLabel(snapshot: UsageSnapshot): String = buildString {

@@ -7,4 +7,12 @@
     <color name="widget_text_tertiary">#66000000</color>
     <color name="widget_progress_track">#1F000000</color>
     <color name="widget_progress_fill">#1B6FF0</color>
+
+    <!--
+      占用率分档配色，阈值与应用内 utilizationColor 一致：
+      <70% 绿 / ≥70% 黄 / ≥90% 红（数据缺失则用 widget_text_tertiary 中性灰）。
+    -->
+    <color name="widget_ok">#2FA84F</color>
+    <color name="widget_warn">#F0A020</color>
+    <color name="widget_error">#E53935</color>
 </resources>

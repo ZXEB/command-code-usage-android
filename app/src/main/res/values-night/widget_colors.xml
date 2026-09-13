@@ -7,4 +7,9 @@
     <color name="widget_text_tertiary">#66FFFFFF</color>
     <color name="widget_progress_track">#33FFFFFF</color>
     <color name="widget_progress_fill">#5C9DFF</color>
+
+    <!-- 分档配色（深色模式）：同色相提亮，保证在深色卡片上仍可读 -->
+    <color name="widget_ok">#4CC36A</color>
+    <color name="widget_warn">#F5B942</color>
+    <color name="widget_error">#FF6B6B</color>
 </resources>

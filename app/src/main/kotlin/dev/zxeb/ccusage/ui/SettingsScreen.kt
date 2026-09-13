@@ -51,7 +51,6 @@ fun SettingsScreen(
     var apiKey by remember { mutableStateOf(settings.apiKey) }
     var metricsToken by remember { mutableStateOf(settings.metricsToken) }
     var autoRefresh by remember { mutableStateOf(settings.autoRefreshMinutes) }
-    var showFiveHour by remember { mutableStateOf(settings.widgetShowFiveHour) }
     var savedHint by remember { mutableStateOf<String?>(null) }
     var widgetHint by remember { mutableStateOf<String?>(null) }
     // 添加/移除小组件后用于强制重算实例数

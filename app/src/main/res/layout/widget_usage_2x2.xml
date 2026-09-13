@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   2×2 小组件（官方规范建议 110×110dp）。
-  精简版：月度剩余百分比（大字）+ 本计费周期 token。
-  同样遵守根布局 match_parent / @android:id/background / 不透明背景 / 内容居中。
+  同样遵守根布局 match_parent / @android:id/background / 不透明背景。
+
+  内容：
+  行1  5 小时 / 每周 剩余百分比（一行摘要）
+  行2  月度剩余百分比（大字）
+  行3  月度进度条
+  行4  本计费周期 tokens
+
+  为什么没有套餐名与「月度剩余」说明行：110dp 减去 12dp×2 内边距只剩 86dp，
+  行1≈12dp + 行2≈38dp + 行3≈10dp + 行4≈17dp ≈ 77dp；再塞两行就会把最后一行挤出去
+  （旧版把「套餐名 + 说明行 + 进度条 + token」叠到约 99dp，token 那行在真机上是被裁掉的）。
+  取舍记在 README「小部件显示内容」里。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/background"
@@ -18,14 +28,14 @@
         android:gravity="center_vertical">
 
         <TextView
-            android:id="@+id/widget_plan"
+            android:id="@+id/widget_windows"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:maxLines="1"
             android:ellipsize="end"
-            android:text="@string/widget_placeholder_plan"
+            android:text="@string/widget_placeholder_value"
             android:textColor="@color/widget_text_secondary"
-            android:textSize="11sp" />
+            android:textSize="9sp" />
 
         <TextView
             android:id="@+id/widget_percent"
@@ -35,24 +45,15 @@
             android:maxLines="1"
             android:text="@string/widget_placeholder_value"
             android:textColor="@color/widget_text_primary"
-            android:textSize="34sp"
+            android:textSize="28sp"
             android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_percent_caption"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:text="@string/widget_percent_caption"
-            android:textColor="@color/widget_text_tertiary"
-            android:textSize="10sp" />
 
         <ProgressBar
             android:id="@+id/widget_monthly_progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="5dp"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="5dp"
             android:max="100"
             android:progress="0"
             android:progressDrawable="@drawable/widget_progress" />
@@ -61,11 +62,11 @@
             android:id="@+id/widget_tokens"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="5dp"
             android:maxLines="1"
             android:text="@string/widget_placeholder_value"
             android:textColor="@color/widget_text_primary"
-            android:textSize="15sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
     </LinearLayout>
 </FrameLayout>

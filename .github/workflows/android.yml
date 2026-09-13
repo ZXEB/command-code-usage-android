@@ -24,6 +24,10 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       VERSION_CODE: ${{ github.run_number }}
+      # 版本名必须由 tag 推导：build.gradle.kts 读 VERSION_NAME，不传的话每个 Release
+      # 打出来的 APK 里 versionName 都是回退值 1.0.0（v1.0.3 的包就是这样）。
+      # 非 tag 的 CI 构建给一个一眼看得出是开发版的版本名。
+      VERSION_NAME: "${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('0.0.{0}-dev', github.run_number) }}"
     steps:
       - name: Checkout
         uses: actions/checkout@v7

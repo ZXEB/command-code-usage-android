@@ -28,9 +28,20 @@ val envKeyPassword: String? = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBl
 
 val hasSigningKey = listOf(envKeystoreBase64, envKeystorePassword, envKeyAlias, envKeyPassword).all { it != null }
 
-/** 版本号：CI 传入 run number，本地构建回退到 1。 */
+/**
+ * 版本号。
+ *
+ * - versionCode 用 CI 的 run number（单调递增，覆盖安装不会被系统拒绝）；
+ * - versionName 由 CI 从 tag 推导（workflow 里传 `VERSION_NAME`）。
+ *   注意要**去掉 tag 的 `v` 前缀**：tag 是 `v1.0.4`，而 versionName 应该是 `1.0.4`。
+ *   不传（本地直接跑 gradle）时回退 1.0.0，绝不写成空串 —— versionName 为空打包会失败。
+ */
 val appVersionCode: Int = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
-val appVersionName: String = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.0"
+val appVersionName: String = System.getenv("VERSION_NAME")
+    ?.trim()
+    ?.removePrefix("v")
+    ?.takeIf { it.isNotBlank() }
+    ?: "1.0.0"
 
 val releaseKeystore = layout.buildDirectory.file("signing/release.p12")
 val prepareSigningKey by tasks.registering {

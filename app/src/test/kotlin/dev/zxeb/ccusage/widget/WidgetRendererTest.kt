@@ -9,6 +9,7 @@ import dev.zxeb.ccusage.model.RateWindow
 import dev.zxeb.ccusage.model.TokenBasis
 import dev.zxeb.ccusage.model.UsageSnapshot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +36,8 @@ class WidgetRendererTest {
         tokensTotal: Long? = 233_370_995L,
         basis: TokenBasis = TokenBasis.BILLING_PERIOD,
         fiveHour: RateWindow? = RateWindow("5 小时", 0.072, 3.0, null),
+        weekly: RateWindow? = RateWindow("每周", 5.0, 100.0, null),
+        monthly: RateWindow? = RateWindow("每月", 12.0, 100.0, null),
         status: String? = "active",
     ) = UsageSnapshot(
         planName = "Go",
@@ -44,6 +47,8 @@ class WidgetRendererTest {
         tokensTotal = tokensTotal,
         tokenBasis = basis,
         fiveHour = fiveHour,
+        weekly = weekly,
+        monthly = monthly,
         fetchedAt = Instant.now(),
     )
 
@@ -57,6 +62,65 @@ class WidgetRendererTest {
     fun `compact widget renders with data`() {
         val views = WidgetRenderer.render(context, compact = true, snapshot = snapshot(), hasApiKey = true)
         assertNotNull(views)
+    }
+
+    @Test
+    fun `all three windows render in both sizes`() {
+        // 4×2 三列窗口、2×2 的「5 小时 · 每周」一行都依赖这三个字段
+        for (compact in listOf(false, true)) {
+            val views = WidgetRenderer.render(
+                context,
+                compact = compact,
+                snapshot = snapshot(fiveHour = RateWindow("5 小时", 0.072, 3.0, null)),
+                hasApiKey = true,
+            )
+            assertNotNull(views)
+        }
+    }
+
+    @Test
+    fun `widget renders when the server reports no limited windows`() {
+        // windowLimits.limited = false 时 fiveHour / weekly 都是 null（服务端明确说没有窗口）
+        val views = WidgetRenderer.render(
+            context,
+            compact = false,
+            snapshot = snapshot(fiveHour = null, weekly = null, monthly = null),
+            hasApiKey = true,
+        )
+        assertNotNull(views)
+        assertNotNull(
+            WidgetRenderer.render(
+                context,
+                compact = true,
+                snapshot = snapshot(fiveHour = null, weekly = null, monthly = null),
+                hasApiKey = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `widget renders when only the weekly window is present`() {
+        val views = WidgetRenderer.render(
+            context,
+            compact = false,
+            snapshot = snapshot(fiveHour = null, monthly = null),
+            hasApiKey = true,
+        )
+        assertNotNull(views)
+    }
+
+    @Test
+    fun `windows without caps render as unknown`() {
+        // used 有、cap 没有：算不出百分比，必须走 -- 与不确定态，而不是 0%
+        val unknown = RateWindow("5 小时", 0.5, null, null)
+        assertNotNull(
+            WidgetRenderer.render(
+                context,
+                compact = false,
+                snapshot = snapshot(fiveHour = unknown, weekly = unknown, monthly = unknown),
+                hasApiKey = true,
+            ),
+        )
     }
 
     @Test
@@ -76,9 +140,24 @@ class WidgetRendererTest {
     @Test
     fun `all-null numeric fields render without throwing`() {
         // 服务端什么都没返回时，界面必须是 -- 而不是 0
-        val blank = snapshot(totalRemaining = null, usagePercent = null, tokensTotal = null, fiveHour = null)
+        val blank = snapshot(
+            totalRemaining = null,
+            usagePercent = null,
+            tokensTotal = null,
+            fiveHour = null,
+            weekly = null,
+            monthly = null,
+        )
         assertNotNull(WidgetRenderer.render(context, compact = false, snapshot = blank, hasApiKey = true))
         assertNotNull(WidgetRenderer.render(context, compact = true, snapshot = blank, hasApiKey = true))
+    }
+
+    @Test
+    fun `renders without an api key while cached data survives`() {
+        // 清了 Key 但缓存还在：数据照旧显示，右上角说明未配置
+        val views = WidgetRenderer.render(context, compact = false, snapshot = snapshot(), hasApiKey = false)
+        assertNotNull(views)
+        assertNotNull(WidgetRenderer.render(context, compact = true, snapshot = snapshot(), hasApiKey = false))
     }
 
     @Test
@@ -300,6 +379,57 @@ class WidgetRendererTest {
             assertTrue("$name 根布局必须有背景", xml.contains("android:background="))
             // 规范 §8：宽高必须 match_parent
             assertTrue("$name 根布局宽高必须 match_parent", xml.contains("android:layout_width=\"match_parent\""))
+        }
+    }
+
+    @Test
+    fun `renderer view ids exist in the layout they are applied to`() {
+        // RemoteViews 写一个不存在的 id 时多数动作是**静默跳过**：布局里 id 被改名或删掉，
+        // 小组件只会安静地少一块内容，不崩溃也不报错，线上很难发现。
+        // 所以这里把「渲染器引用了哪些 id」和「布局声明了哪些 id」强行对起来。
+        val fullXml = readSource("layout/widget_usage_4x2.xml")
+        val compactXml = readSource("layout/widget_usage_2x2.xml")
+        assertNotNull("找不到 widget_usage_4x2.xml", fullXml)
+        assertNotNull("找不到 widget_usage_2x2.xml", compactXml)
+        val full: String = fullXml!!
+        val compact: String = compactXml!!
+
+        for (id in listOf(
+            "widget_plan",
+            "widget_updated",
+            "widget_fivehour",
+            "widget_bar_fivehour",
+            "widget_weekly",
+            "widget_bar_weekly",
+            "widget_monthly",
+            "widget_bar_monthly",
+            "widget_tokens",
+            "widget_tokens_label",
+        )) {
+            assertTrue("4×2 布局缺少 @+id/$id", full.contains("@+id/$id"))
+        }
+        for (id in listOf("widget_windows", "widget_percent", "widget_monthly_progress", "widget_tokens")) {
+            assertTrue("2×2 布局缺少 @+id/$id", compact.contains("@+id/$id"))
+        }
+
+        // 改版移除的 id 必须从布局里删干净，否则会被下一条检查当成合法目标
+        assertFalse("4×2 不应再有 widget_remaining", full.contains("widget_remaining"))
+        assertFalse("2×2 不应再有 widget_plan（高度不够，已让位给 5 小时/每周）", compact.contains("widget_plan"))
+        assertFalse("2×2 不应再有 widget_percent_caption", compact.contains("widget_percent_caption"))
+
+        // 渲染器引用的每个 R.id.widget_* 必须真实存在于某个布局
+        val rendererXml = readSourceFile("kotlin/dev/zxeb/ccusage/widget/WidgetRenderer.kt")
+        assertNotNull("找不到 WidgetRenderer.kt", rendererXml)
+        val renderer: String = rendererXml!!
+        val referenced = Regex("""R\.id\.(widget_\w+)""").findAll(renderer)
+            .map { it.groupValues[1] }
+            .toSet()
+        assertTrue("渲染器应当引用小组件 id", referenced.isNotEmpty())
+        for (id in referenced) {
+            assertTrue(
+                "WidgetRenderer 引用了 $id，但两个布局里都没有这个 id",
+                full.contains("@+id/$id") || compact.contains("@+id/$id"),
+            )
         }
     }
 
