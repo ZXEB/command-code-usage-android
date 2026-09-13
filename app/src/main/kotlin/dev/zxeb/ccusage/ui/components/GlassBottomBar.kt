@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -124,15 +123,29 @@ fun GlassBottomBar(
     // `boundsInParent()` 返回的本来就是**像素**；之前写成 `bounds.width.dp` 再在
     // drawBehind 里 `toPx()`，等于把屏幕密度乘了两次 —— 高亮胶囊会被放大约 3 倍
     // 并向右下偏移，糊成一大块盖住底栏。这里直接对 px 做动画与绘制，语义唯一。
-    val pillLeft by animateFloatAsState(targetBounds?.left ?: 0f, spec, label = "pillLeft")
-    val pillTop by animateFloatAsState(targetBounds?.top ?: 0f, spec, label = "pillTop")
-    val pillWidth by animateFloatAsState(targetBounds?.width ?: 0f, spec, label = "pillWidth")
-    val pillHeight by animateFloatAsState(targetBounds?.height ?: 0f, spec, label = "pillHeight")
+    //
+    // ⚠️ 高亮胶囊的坐标空间必须与 `boundsInParent()` 的测量空间一致。
+    // 之前把 `.drawBehind {}` 放在 `.padding(horizontal = 6.dp)` **之前**：导航项的
+    // bounds 是相对 padding 之内的内容盒测量的，而绘制发生在 padding 之外的外框，
+    // 于是整颗胶囊被恒定地偏移一个 padding 值 —— 实测胶囊中心 143.5px、图标/文字
+    // 中心 161.5px，偏左 18px（= 6dp padding × 3.0 密度），观感就是「选中光标不居中」。
+    // 修法是把 `.drawBehind` 移到 `.padding` **之后**，两者共用同一个原点。
+    // 以中心点驱动动画（而非 left/top）是为了让拉伸形变的枢轴天然落在内容中心。
+    val density = LocalDensity.current
+    val targetCenterX = targetBounds?.center?.x ?: 0f
+    val targetCenterY = targetBounds?.center?.y ?: 0f
+    val targetWidth = targetBounds?.width ?: 0f
+    val targetHeight = targetBounds?.height ?: 0f
+
+    val pillCenterX by animateFloatAsState(targetCenterX, spec, label = "pillCenterX")
+    val pillCenterY by animateFloatAsState(targetCenterY, spec, label = "pillCenterY")
+    val pillWidth by animateFloatAsState(targetWidth, spec, label = "pillWidth")
+    val pillHeight by animateFloatAsState(targetHeight, spec, label = "pillHeight")
 
     // 液态挤压：滑动途中胶囊按"目标宽度-当前宽度"水平拉伸、垂直微缩，到位回弹。
     // 拉伸量由动画进度（当前值与目标值的差）实时推算，无需额外状态。
-    val density = LocalDensity.current
-    val stretchPx = kotlin.math.abs(pillWidth - (targetBounds?.width ?: 0f))
+    // 形变以胶囊中心为枢轴，因此拉伸过程中中心不动，始终与内容同心。
+    val stretchPx = kotlin.math.abs(pillWidth - targetWidth)
     val maxStretchPx = with(density) { 8.dp.toPx() }
     val stretchFraction = (stretchPx / maxStretchPx).coerceIn(0f, 1f)
     val scaleX = 1f + stretchFraction * 0.14f
@@ -143,61 +156,65 @@ fun GlassBottomBar(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = BAR_HORIZONTAL_PADDING, vertical = BAR_BOTTOM_PADDING),
+        // 把「导航胶囊 + 间距 + 圆形按钮」当成**一个整体**居中。
+        // 之前是两个 weight(1f) 夹住胶囊，那只让**胶囊本身**居中，圆形按钮被额外
+        // 推到右侧 —— 左侧留白 94dp、右侧只剩 16dp，观感就是整条底栏向右偏。
+        // 参考 HyperOS 4 底栏（.videoframes/g_001）：胶囊与圆形按钮作为一个整体
+        // 居中，左右留白基本相等。
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // symmetric three-column layout keeps the navigation pill centered.
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(PILL_HEIGHT),
-        )
-
         // ---------------- 导航胶囊 ----------------
         Row(
             modifier = Modifier
                 .height(PILL_HEIGHT)
                 .then(glass(pillShape))
                 .border(0.5.dp, hairline, pillShape)
-                // 滑动的高亮胶囊画在内容之下；滑动中做液态拉伸形变
-                .drawBehind {
-                    if (targetBounds == null) return@drawBehind
-                    // 这几个值已经是像素（动画目标取自 boundsInParent），不要再 toPx()
-                    val left = pillLeft
-                    val top = pillTop
-                    val width = pillWidth
-                    val height = pillHeight
-                    if (width <= 0f || height <= 0f) return@drawBehind
-                    val cx = left + width / 2f
-                    val cy = top + height / 2f
-                    val w = width * scaleX
-                    val h = height * scaleY
-                    withTransform({
-                        scale(scaleX, scaleY, pivot = Offset(cx, cy))
-                    }) {
-                        drawRoundRect(
-                            color = selectedPillColor,
-                            topLeft = Offset(cx - w / 2f, cy - h / 2f),
-                            size = Size(w, h),
-                            cornerRadius = CornerRadius(h / 2f),
-                        )
-                    }
-                }
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = BAR_ITEM_INSET),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            items.forEachIndexed { index, item ->
-                GlassNavItem(
-                    item = item,
-                    selected = index == selectedIndex,
-                    onClick = { onSelect(index) },
-                    iconColor = iconColor,
-                    modifier = Modifier.onGloballyPositioned { coords ->
-                        val bounds = coords.boundsInParent()
-                        // 避免每帧都写状态造成无谓重组
-                        if (itemBounds[index] != bounds) itemBounds[index] = bounds
+            // 导航项放在这一层 Row 上，`.drawBehind` 也挂在这一层：
+            // 子项的 boundsInParent() 与绘制都发生在**同一个坐标系**，因此
+            // 高亮胶囊的中心天然等于内容中心，不会出现恒定偏移。
+            Row(
+                modifier = Modifier
+                    .drawBehind {
+                        if (targetBounds == null) return@drawBehind
+                        // 这几个值已经是像素（动画目标取自 boundsInParent），不要再 toPx()
+                        val width = pillWidth
+                        val height = pillHeight
+                        if (width <= 0f || height <= 0f) return@drawBehind
+                        val cx = pillCenterX
+                        val cy = pillCenterY
+                        val w = width * scaleX
+                        val h = height * scaleY
+                        withTransform({
+                            scale(scaleX, scaleY, pivot = Offset(cx, cy))
+                        }) {
+                            drawRoundRect(
+                                color = selectedPillColor,
+                                topLeft = Offset(cx - w / 2f, cy - h / 2f),
+                                size = Size(w, h),
+                                cornerRadius = CornerRadius(h / 2f),
+                            )
+                        }
                     },
-                )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items.forEachIndexed { index, item ->
+                    GlassNavItem(
+                        item = item,
+                        selected = index == selectedIndex,
+                        onClick = { onSelect(index) },
+                        iconColor = iconColor,
+                        modifier = Modifier.onGloballyPositioned { coords ->
+                            val bounds = coords.boundsInParent()
+                            // 避免每帧都写状态造成无谓重组
+                            if (itemBounds[index] != bounds) itemBounds[index] = bounds
+                        },
+                    )
+                }
             }
         }
 
@@ -206,8 +223,6 @@ fun GlassBottomBar(
         Box(
             modifier = Modifier
                 .padding(start = ACTION_GAP)
-                .weight(1f)
-                .wrapContentWidth(Alignment.End)
                 .size(PILL_HEIGHT)
                 .pressScale(actionInteraction, pressedScale = 0.9f)
                 .then(glass(circleShape))
@@ -306,6 +321,9 @@ private val BAR_HORIZONTAL_PADDING = 16.dp
 
 /** 底栏距手势条的距离。 */
 private val BAR_BOTTOM_PADDING = 10.dp
+
+/** 导航胶囊内、最外侧导航项与胶囊边缘之间的留白。 */
+private val BAR_ITEM_INSET = 6.dp
 
 /** 胶囊与圆形按钮之间的间距。 */
 private val ACTION_GAP = 10.dp
