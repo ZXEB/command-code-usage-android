@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  4×4 里每个用量窗口的**内层卡片**背景。
+
+  参考形态里，三个窗口是叠在小组件底色之上的独立卡片（比外框略亮/略暗一点），
+  用它拉开层次。颜色走 widget_card_inner_color，深浅色各一档。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_card_inner_color" />
+    <corners android:radius="14dp" />
+</shape>

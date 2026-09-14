@@ -45,6 +45,14 @@ FULL_4X2_IDS = [
     "widget_tokens", "widget_tokens_label",
 ]
 COMPACT_2X2_IDS = ["widget_windows", "widget_percent", "widget_monthly_progress", "widget_tokens"]
+
+# 4×4 详细版：三个窗口卡片，每个一套「标题/推算标记/已用%/进度条/剩余/重置」
+DETAILED_4X4_IDS = ["widget_plan", "widget_updated"] + [
+    "widget_%s_%s" % (prefix, suffix)
+    for prefix in ("fivehour", "weekly", "monthly")
+    for suffix in ("card", "title", "note", "percent", "bar", "remaining", "reset")
+]
+
 REMOVED_IDS = ["widget_remaining", "widget_percent_caption"]
 
 
@@ -168,12 +176,15 @@ def check_manifest(text, expected_version):
 
 def check_widget_layouts(texts, id_names):
     ok = True
+    # 每个尺寸：期望的 id 集合 + 应有的进度条数量
     wanted = {
-        "4x2": [id_names.get(n) for n in FULL_4X2_IDS],
-        "2x2": [id_names.get(n) for n in COMPACT_2X2_IDS],
+        "4x4": (DETAILED_4X4_IDS, 3),
+        "4x2": (FULL_4X2_IDS, 3),
+        "2x2": (COMPACT_2X2_IDS, 1),
     }
-    for label, ids in wanted.items():
-        missing_names = [n for n, i in zip(FULL_4X2_IDS if label == "4x2" else COMPACT_2X2_IDS, ids) if i is None]
+    for label, (names, expected_bars) in wanted.items():
+        ids = [id_names.get(n) for n in names]
+        missing_names = [n for n, i in zip(names, ids) if i is None]
         if missing_names:
             print("  FAIL: %s 的 id 没在 resources.arsc 里定义: %s" % (label, missing_names))
             ok = False
@@ -188,7 +199,6 @@ def check_widget_layouts(texts, id_names):
         name, text = hit[0]
         bars = text.count("<ProgressBar")
         print("  %s -> %s（引用 id 全部命中，ProgressBar x%d）" % (label, name, bars))
-        expected_bars = 3 if label == "4x2" else 1
         if bars != expected_bars:
             print("  FAIL: %s 应有 %d 条进度条" % (label, expected_bars))
             ok = False

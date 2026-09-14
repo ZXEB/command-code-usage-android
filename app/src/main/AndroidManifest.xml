@@ -73,6 +73,22 @@
           设置页的「添加到桌面」按钮会直接崩掉（表现正是"点了没反应"）。
           小组件渲染链路只读 SharedPreferences、不联网，跑在主进程开销极小。
         -->
+        <!-- ============================ 4×4 小组件（详细） ============================
+             三个用量窗口各一张卡片：标题 + 已用% + 进度条 + 剩余额度 + 重置时间。
+             其余声明约定（exported / label / 不设独立进程等）见上方 4×2 的说明。 -->
+        <receiver
+            android:name=".widget.DetailedWidgetProvider"
+            android:label="@string/widget_label"
+            android:exported="true">
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/usage_widget_4x4" />
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".widget.UsageWidgetProvider"
             android:label="@string/widget_label"

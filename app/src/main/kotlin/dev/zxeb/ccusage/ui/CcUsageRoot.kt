@@ -99,6 +99,13 @@ fun CcUsageRoot() {
     // 每分钟走一次，用于倒计时刷新（不需要重新联网）
     var now by remember { mutableStateOf(Instant.now()) }
 
+    // 下拉指示器的短暂展开反馈。
+    //
+    // 刻意**不与网络请求同生命周期**：只表示「这次手势被接受了」，
+    // 展开后很快收起，好让用户马上能继续滚动（原因见 doRefresh 的注释）。
+    // 真正的进度由页面内容上的刷新态（state.refreshing）表达，那不会锁手势。
+    var pullRefreshing by remember { mutableStateOf(false) }
+
     val backgroundColor = MiuixTheme.colorScheme.background
     val backdrop = rememberLayerBackdrop {
         // 先铺不透明底色：否则模糊会把透明像素的颜色扩散成色块（miuix-blur 文档明确提示）
@@ -150,11 +157,26 @@ fun CcUsageRoot() {
         }
     }
 
-    // 刷新动作：下拉刷新与顶栏/菜单共用同一条路径
+    // 刷新动作：下拉刷新与顶栏/菜单共用同一条路径。
+    //
+    // ⚠️ 网络请求**不能**拿它的进行时去驱动 PullToRefresh 的 `isRefreshing` ——
+    // miuix 的 PullToRefresh 在 Refreshing 状态下会吞掉全部滚动手势（内部
+    // NestedScrollConnection 的 onPreScroll/onPostScroll 直接 return available）。
+    // 账单接口实测要 20~45s，绑上去就等于「刷新期间整页锁死、什么都点不了」，
+    // 这正是用户反馈的问题。所以指示器只做短暂的「已触发」反馈，请求在后台跑。
     val doRefresh: () -> Unit = {
+        pullRefreshing = true
         scope.launch {
             repository.refresh(force = true)
             WidgetRefreshWorker.enqueue(context)
+        }
+    }
+
+    // 指示器短暂展开后自行收起，把手势控制权还给列表。
+    LaunchedEffect(pullRefreshing) {
+        if (pullRefreshing) {
+            delay(PULL_INDICATOR_MS)
+            pullRefreshing = false
         }
     }
 
@@ -178,7 +200,8 @@ fun CcUsageRoot() {
                     .layerBackdrop(backdrop),
             ) {
                 PullToRefresh(
-                    isRefreshing = state.refreshing,
+                    // 只跟「手势被接受」这个瞬时状态走，不跟网络请求走（见 doRefresh 注释）。
+                    isRefreshing = pullRefreshing,
                     onRefresh = doRefresh,
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -309,6 +332,14 @@ fun CcUsageRoot() {
         }
     }
 }
+
+/**
+ * 下拉指示器展开的时长（毫秒）。
+ *
+ * 短于网络请求（20~45s）是**故意的**：它只负责告诉用户「手势收到了」，
+ * 展开太久会让整页无法滚动（miuix 的 PullToRefresh 在刷新态吞掉所有手势）。
+ */
+private const val PULL_INDICATOR_MS = 700L
 
 /**
  * 一个底栏 tab 的描述（标题 + 图标）。

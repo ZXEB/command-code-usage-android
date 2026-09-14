@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  澎湃 / 小米小部件 4×4（官方建议尺寸表里 4×4 = 300×250dp）。
+  详细版：三个用量窗口各一张卡片（标题 + 已用% + 进度条 + 剩余额度 + 重置时间）。
+
+  targetCellWidth/Height 是 Android 12+ 的原生网格单位，一并声明以提高在非小米桌面上的排版准确度。
+  previewImage 与 previewLayout 都给：Android 12+ 优先用 previewLayout（真布局），
+  Android 12 以下 / 部分第三方桌面只认 previewImage，缺了它列表条目可能没有缩略图。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="250dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="4"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="180dp"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="400dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_usage_4x4"
+    android:previewLayout="@layout/widget_usage_4x4"
+    android:previewImage="@drawable/widget_preview_4x4"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description" />

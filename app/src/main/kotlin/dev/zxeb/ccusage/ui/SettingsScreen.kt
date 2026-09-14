@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.zxeb.ccusage.data.SettingsStore
 import dev.zxeb.ccusage.widget.CompactWidgetProvider
+import dev.zxeb.ccusage.widget.DetailedWidgetProvider
 import dev.zxeb.ccusage.widget.UsageWidgetProvider
 import dev.zxeb.ccusage.widget.WidgetRefreshWorker
 import kotlinx.coroutines.launch
@@ -270,18 +271,21 @@ private fun Row3(
 private fun WidgetStateRow(context: Context, refreshKey: Int) {
     val manager = remember { AppWidgetManager.getInstance(context) }
     // refreshKey 变化时重算，避免添加完小组件后数字还是旧的
-    val full = remember(refreshKey) {
+    val detailed = remember(refreshKey) {
+        manager?.getAppWidgetIds(ComponentName(context, DetailedWidgetProvider::class.java))?.size ?: 0
+    }
+    val wide = remember(refreshKey) {
         manager?.getAppWidgetIds(ComponentName(context, UsageWidgetProvider::class.java))?.size ?: 0
     }
     val compact = remember(refreshKey) {
         manager?.getAppWidgetIds(ComponentName(context, CompactWidgetProvider::class.java))?.size ?: 0
     }
-    val total = full + compact
+    val total = detailed + wide + compact
     Text(
         text = if (total == 0) {
             "当前桌面还没有添加小组件"
         } else {
-            "已在桌面添加 $total 个（4×2：$full，2×2：$compact）"
+            "已在桌面添加 $total 个（4×4：$detailed，4×2：$wide，2×2：$compact）"
         },
         style = MiuixTheme.textStyles.footnote1,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -306,7 +310,9 @@ private fun WidgetStateRow(context: Context, refreshKey: Int) {
  * 所以失败时要把这条退路明确告诉用户。
  */
 private fun requestPinWidget(context: Context, onResult: (String) -> Unit) {
-    val provider = ComponentName(context, UsageWidgetProvider::class.java)
+    // 默认 pin 详细版（4×4）：它与应用内「用量窗口」卡片同构，是主推形态。
+    // 用户仍可在添加列表里选 4×2 / 2×2。
+    val provider = ComponentName(context, DetailedWidgetProvider::class.java)
     val manualHint = "请长按桌面空白处 → 添加小部件 → 搜索「用量小组件」"
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -326,7 +332,7 @@ private fun requestPinWidget(context: Context, onResult: (String) -> Unit) {
     // 小米专有 extras（规范 §四.1）：不带的话只会走原生 pin，不会打开小米详情页
     val extras = Bundle().apply {
         putString("addType", "appWidgetDetail")
-        putString("widgetName", "${context.packageName}/${UsageWidgetProvider::class.java.name}")
+        putString("widgetName", "${context.packageName}/${DetailedWidgetProvider::class.java.name}")
     }
 
     val requested = runCatching {

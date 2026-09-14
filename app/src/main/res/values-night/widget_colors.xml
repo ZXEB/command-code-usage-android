@@ -8,6 +8,9 @@
     <color name="widget_progress_track">#33FFFFFF</color>
     <color name="widget_progress_fill">#5C9DFF</color>
 
+    <!-- 4×4 内层卡片（深色）：比外框略亮，形成「卡片叠卡片」的层次 -->
+    <color name="widget_card_inner_color">#14FFFFFF</color>
+
     <!-- 分档配色（深色模式）：同色相提亮，保证在深色卡片上仍可读 -->
     <color name="widget_ok">#4CC36A</color>
     <color name="widget_warn">#F5B942</color>

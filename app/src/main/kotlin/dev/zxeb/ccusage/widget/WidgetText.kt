@@ -16,13 +16,14 @@ import java.time.Instant
  * 由 `WidgetTextTest` 直接断言。`WidgetRenderer` 只负责把这些结果塞进
  * `RemoteViews`，不再自己算数。
  *
- * 口径约定（README「小部件显示内容」一节同步说明）：
- * - 窗口显示的是**剩余**（`100 - 已用%`，截断取整，与应用内 `(100.0 - percent).toInt()` 一致）；
- * - 进度条画的是**同一个剩余比例**，所以「数字大 = 条长」永远自洽；
- * - 颜色按**已用**比例分档（<70% 绿 / ≥70% 黄 / ≥90% 红），与应用内 `utilizationColor` 同阈值。
- *   分档只作用于**数值文字**：RemoteViews 上没有 `setProgressTintList`（CI 实测编译期就 unresolved），
- *   可靠的颜色动作只有 `setTextColor`，所以三根条形统一用品牌蓝；
- * - 任何拿不到的数值一律 `--`，**绝不显示 0**（0 会被误读成「用完了」）。
+ * 口径与应用内的窗口卡片（`ui/components/QuotaComponents.kt` 的 `WindowCard`）**逐字对齐**：
+ * - 显示的是**已用**百分比（`used / cap`，截断取整），不是剩余 —— 应用里也是这个口径，
+ *   两边必须一致，否则同一份数据在应用里 7%、在桌面上 93%，用户没法判断该信哪个；
+ * - 进度条画的是**同一个已用比例**，所以「用得越多、条越长」，与数字同向；
+ * - 颜色按**已用**比例分档（<70% 绿 / ≥70% 黄 / ≥90% 红），与应用内 `utilizationColor` 同阈值；
+ * - 明细行照抄应用：「剩余 $2.77 / $3.00」「2小时50分后重置（2026/9/15 00:08）」「按周期推算」；
+ * - 任何拿不到的数值一律 `--`，**绝不显示 0**（0 会被误读成「没用过 / 用完了」），
+ *   进度条在数据缺失时隐藏而不是画成 0。
  */
 object WidgetText {
 
@@ -37,44 +38,41 @@ object WidgetText {
     }
 
     // ------------------------------------------------------------------
-    // 剩余比例
+    // 已用比例（与应用内 WindowCard 同口径）
     // ------------------------------------------------------------------
 
     /**
-     * 剩余百分比（整数，0..100）。`usedPercent` 为 null 时返回 null（未知，不是 0）。
+     * 已用百分比（整数，0..100）。`usedPercent` 为 null 时返回 null（未知，不是 0）。
      *
-     * 用**截断**而不是四舍五入：与应用内既有写法 `(100.0 - percent).toInt()` 保持一致，
-     * 避免同一份数据在应用里显示 97%、在小组件里显示 98%。
+     * 用**截断**而不是四舍五入：与应用内 `Format.percent`（`value.toInt()`）保持一致，
+     * 避免同一份数据在应用里显示 7%、在小组件里显示 8%。
      */
-    fun remainingPercent(usedPercent: Double?): Int? {
-        val used = usedPercent ?: return null
-        return (100.0 - used).toInt().coerceIn(0, 100)
-    }
+    fun usedPercent(usedPercent: Double?): Int? = usedPercent?.toInt()?.coerceIn(0, 100)
 
-    /** 窗口的剩余百分比；窗口缺失或额度未知时为 null。 */
-    fun remainingPercent(window: RateWindow?): Int? = remainingPercent(window?.percent)
+    /** 窗口的已用百分比；窗口缺失或额度未知时为 null。 */
+    fun usedPercent(window: RateWindow?): Int? = usedPercent(window?.percent)
 
-    /** `"97%"`；未知时为 `--`。 */
-    fun remainingPercentText(usedPercent: Double?): String =
-        remainingPercent(usedPercent)?.let { "$it%" } ?: Format.UNKNOWN
+    /** `"7%"`；未知时为 `--`。 */
+    fun usedPercentText(usedPercent: Double?): String =
+        usedPercent?.let { Format.percent(it) } ?: Format.UNKNOWN
 
-    /** 窗口的剩余百分比文案。 */
-    fun remainingPercentText(window: RateWindow?): String =
-        remainingPercent(window)?.let { "$it%" } ?: Format.UNKNOWN
+    /** 窗口的已用百分比文案。 */
+    fun usedPercentText(window: RateWindow?): String = usedPercentText(window?.percent)
 
     // ------------------------------------------------------------------
     // 进度条
     // ------------------------------------------------------------------
 
-    /** 进度条进度值（0..100）：与上方数字同源。未知时返回 0 并配合 [barIsIndeterminate]。 */
-    fun barProgress(window: RateWindow?): Int = remainingPercent(window) ?: 0
+    /** 进度条进度值（0..100）：与上方数字同源（都是已用比例）。未知时为 0。 */
+    fun barProgress(window: RateWindow?): Int = usedPercent(window) ?: 0
 
     /**
-     * 进度条是否走不确定态。
+     * 进度条是否可见。
      *
-     * 数据缺失时**必须**不确定：画成 0% 会让人以为额度用光了。
+     * 数据缺失时**必须隐藏**：画成 0% 会让人以为「完全没用」，与「不知道」是两回事。
+     * （应用内对应的是不确定态进度条，语义同样是「别把它读成一个具体数值」。）
      */
-    fun barIsIndeterminate(window: RateWindow?): Boolean = remainingPercent(window) == null
+    fun barVisible(window: RateWindow?): Boolean = usedPercent(window) != null
 
     // ------------------------------------------------------------------
     // 配色
@@ -91,7 +89,7 @@ object WidgetText {
     /** 窗口的档位。 */
     fun utilization(window: RateWindow?): Utilization = utilizationOf(window?.percent)
 
-    /** 档位对应的颜色资源（用于数值文字，见类注释）。 */
+    /** 档位对应的颜色资源（数值文字与进度条fill 共用）。 */
     fun colorRes(utilization: Utilization): Int = when (utilization) {
         Utilization.OK -> R.color.widget_ok
         Utilization.WARN -> R.color.widget_warn
@@ -100,15 +98,56 @@ object WidgetText {
     }
 
     // ------------------------------------------------------------------
-    // 文案
+    // 明细行（照抄应用内 WindowCard 的文案）
     // ------------------------------------------------------------------
 
-    /** `"5 小时 97%"`。 */
-    fun windowLine(label: String, window: RateWindow?): String =
-        "$label ${remainingPercentText(window)}"
+    /**
+     * `"剩余 $2.77 / $3.00"`。
+     *
+     * `cap` 缺失时只给剩余（应用内同样是「有 cap 才拼 / cap」）。
+     */
+    fun remainingLine(window: RateWindow?): String = buildString {
+        append("剩余 ")
+        append(Format.usd(window?.remaining))
+        val cap = window?.cap
+        if (cap != null) {
+            append(" / ")
+            append(Format.usd(cap))
+        }
+    }
 
     /**
-     * 2×2 里那一行紧凑的三窗口摘要：`"5 小时 97% · 每周 95%"`。
+     * `"2小时50分后重置（2026/9/15 00:08）"`。
+     *
+     * 拿不到重置时刻直接给 `--`，不拼出「--后重置」这种半截文案。
+     */
+    fun resetLine(window: RateWindow?, now: Instant = Instant.now()): String {
+        val resetAt = window?.resetAt ?: return Format.UNKNOWN
+        return "${Format.duration(resetAt, now)}后重置（${Format.resetAt(resetAt, now)}）"
+    }
+
+    /**
+     * 窗口标题旁的推算标记，不需要时返回 null。
+     *
+     * 月度窗口是本地按计费周期推算的（服务端 `windowLimits` 里没有 `monthly`），
+     * 应用内会标「按周期推算」，小组件必须同样标注，否则会被当成服务端权威口径。
+     *
+     * @param forcedDerived 调用方已知是本地推算的（例如从额度池回落后合成出来的月度窗口），
+     *   此时即使 `window.derived` 没置位也要标。
+     */
+    fun derivedNote(window: RateWindow?, forcedDerived: Boolean = false): String? =
+        if (forcedDerived || window?.derived == true) "按周期推算" else null
+
+    // ------------------------------------------------------------------
+    // 2×2 紧凑行
+    // ------------------------------------------------------------------
+
+    /** `"5 小时 7%"`。 */
+    fun windowLine(label: String, window: RateWindow?): String =
+        "$label ${usedPercentText(window)}"
+
+    /**
+     * 2×2 里那一行紧凑的窗口摘要：`"5时 7% · 周 31%"`。
      *
      * 2×2 只有 110dp 高，放不下第三项（每月已经是下面那个大字），所以这里只拼两个窗口；
      * 两者都拿不到时返回 `--`。

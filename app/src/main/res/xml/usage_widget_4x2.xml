@@ -29,4 +29,4 @@
     android:previewImage="@drawable/widget_preview_4x2"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:description="@string/widget_description" />
+    android:description="@string/widget_description_wide" />

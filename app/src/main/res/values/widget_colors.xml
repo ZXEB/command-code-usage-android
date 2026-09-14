@@ -8,6 +8,9 @@
     <color name="widget_progress_track">#1F000000</color>
     <color name="widget_progress_fill">#1B6FF0</color>
 
+    <!-- 4×4 里每个用量窗口的内层卡片：比外框略深一点，拉出层次 -->
+    <color name="widget_card_inner_color">#0D000000</color>
+
     <!--
       占用率分档配色，阈值与应用内 utilizationColor 一致：
       <70% 绿 / ≥70% 黄 / ≥90% 红（数据缺失则用 widget_text_tertiary 中性灰）。

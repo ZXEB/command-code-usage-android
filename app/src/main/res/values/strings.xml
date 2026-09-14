@@ -3,13 +3,14 @@
     <string name="app_name">CC 用量</string>
 
     <!--
-      两个尺寸共用同一个 label，澎湃详情页会据此把同功能的不同尺寸聚合在一起。
+      三个尺寸共用同一个 label，澎湃详情页会据此把同功能的不同尺寸聚合在一起。
       小米官方要求小部件名称为 2–8 个汉字，且不能与应用名（CC 用量）相同。
       「用量小组件」= 5 个汉字，合规。
     -->
     <string name="widget_label">用量小组件</string>
-    <string name="widget_description">显示 5 小时 / 每周 / 每月剩余额度与本计费周期 token</string>
-    <string name="widget_description_compact">精简显示月度剩余、5 小时与每周剩余，以及本计费周期 token</string>
+    <string name="widget_description">详细显示 5 小时 / 每周 / 每月已用比例、剩余额度与重置时间</string>
+    <string name="widget_description_wide">显示 5 小时 / 每周 / 每月已用比例与本计费周期 token</string>
+    <string name="widget_description_compact">精简显示月度已用比例、5 小时与每周已用比例，以及本计费周期 token</string>
 
     <!-- 小组件占位文案 -->
     <string name="widget_placeholder_plan">Command Code</string>
@@ -18,7 +19,7 @@
     <string name="widget_empty_title">CC 用量</string>
     <string name="widget_empty_hint">点此打开应用，填入 API Key 后即可显示用量</string>
 
-    <!-- 小组件里的三个用量窗口名称（列标题，位置固定，不随服务端 label 变） -->
+    <!-- 小组件里的三个用量窗口名称（位置固定，不随服务端 label 变） -->
     <string name="widget_window_fivehour">5 小时</string>
     <string name="widget_window_weekly">每周</string>
     <string name="widget_window_monthly">每月</string>

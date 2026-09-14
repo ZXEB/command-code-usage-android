@@ -8,6 +8,7 @@ import dev.zxeb.ccusage.data.SettingsStore
 import dev.zxeb.ccusage.model.RateWindow
 import dev.zxeb.ccusage.model.TokenBasis
 import dev.zxeb.ccusage.model.UsageSnapshot
+import dev.zxeb.ccusage.widget.WidgetRenderer.Size
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -23,6 +24,9 @@ import java.time.Instant
  *
  * RemoteViews 的渲染无法在 JVM 里做像素断言，所以这里覆盖的是**不变量**：
  * 各状态都必须能构建出 RemoteViews（不崩溃、不空白），且关键文案符合预期。
+ *
+ * 三种尺寸（4×4 详细 / 4×2 宽版 / 2×2 精简）都要覆盖 —— 新增尺寸最容易漏的就是
+ * 「某个尺寸在某个数据状态下崩掉」，而那在桌面上表现为小组件直接消失。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -30,9 +34,12 @@ class WidgetRendererTest {
 
     private val context: Context get() = org.robolectric.RuntimeEnvironment.getApplication()
 
+    private val allSizes = listOf(Size.FULL, Size.WIDE, Size.COMPACT)
+
     private fun snapshot(
         totalRemaining: Double? = 4.93,
         usagePercent: Double? = 50.7,
+        totalPool: Double? = 10.0,
         tokensTotal: Long? = 233_370_995L,
         basis: TokenBasis = TokenBasis.BILLING_PERIOD,
         fiveHour: RateWindow? = RateWindow("5 小时", 0.072, 3.0, null),
@@ -43,6 +50,7 @@ class WidgetRendererTest {
         planName = "Go",
         subscriptionStatus = status,
         totalRemaining = totalRemaining,
+        totalPool = totalPool,
         usagePercent = usagePercent,
         tokensTotal = tokensTotal,
         tokenBasis = basis,
@@ -52,132 +60,113 @@ class WidgetRendererTest {
         fetchedAt = Instant.now(),
     )
 
-    @Test
-    fun `full widget renders with data`() {
-        val views = WidgetRenderer.render(context, compact = false, snapshot = snapshot(), hasApiKey = true)
-        assertNotNull(views)
-    }
+    // ------------------------------------------------------------------
+    // 三种尺寸都能渲染
+    // ------------------------------------------------------------------
 
     @Test
-    fun `compact widget renders with data`() {
-        val views = WidgetRenderer.render(context, compact = true, snapshot = snapshot(), hasApiKey = true)
-        assertNotNull(views)
-    }
-
-    @Test
-    fun `all three windows render in both sizes`() {
-        // 4×2 三列窗口、2×2 的「5 小时 · 每周」一行都依赖这三个字段
-        for (compact in listOf(false, true)) {
-            val views = WidgetRenderer.render(
-                context,
-                compact = compact,
-                snapshot = snapshot(fiveHour = RateWindow("5 小时", 0.072, 3.0, null)),
-                hasApiKey = true,
-            )
-            assertNotNull(views)
+    fun `every size renders with data`() {
+        for (size in allSizes) {
+            assertNotNull("$size 在正常数据下必须能渲染", WidgetRenderer.render(context, size, snapshot(), true))
         }
     }
 
     @Test
-    fun `widget renders when the server reports no limited windows`() {
+    fun `every size renders without an api key while cached data survives`() {
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, snapshot(), hasApiKey = false))
+        }
+    }
+
+    @Test
+    fun `every size renders when the server reports no limited windows`() {
         // windowLimits.limited = false 时 fiveHour / weekly 都是 null（服务端明确说没有窗口）
-        val views = WidgetRenderer.render(
-            context,
-            compact = false,
-            snapshot = snapshot(fiveHour = null, weekly = null, monthly = null),
-            hasApiKey = true,
-        )
-        assertNotNull(views)
-        assertNotNull(
-            WidgetRenderer.render(
-                context,
-                compact = true,
-                snapshot = snapshot(fiveHour = null, weekly = null, monthly = null),
-                hasApiKey = true,
-            ),
-        )
+        val noWindows = snapshot(fiveHour = null, weekly = null, monthly = null)
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, noWindows, true))
+        }
     }
 
     @Test
-    fun `widget renders when only the weekly window is present`() {
-        val views = WidgetRenderer.render(
-            context,
-            compact = false,
-            snapshot = snapshot(fiveHour = null, monthly = null),
-            hasApiKey = true,
-        )
-        assertNotNull(views)
-    }
-
-    @Test
-    fun `windows without caps render as unknown`() {
-        // used 有、cap 没有：算不出百分比，必须走 -- 与不确定态，而不是 0%
-        val unknown = RateWindow("5 小时", 0.5, null, null)
-        assertNotNull(
-            WidgetRenderer.render(
-                context,
-                compact = false,
-                snapshot = snapshot(fiveHour = unknown, weekly = unknown, monthly = unknown),
-                hasApiKey = true,
-            ),
-        )
-    }
-
-    @Test
-    fun `null snapshot renders the guidance view not a crash`() {
-        // 小米规范 §9：清数据 / 未授权时必须回到默认视图，不能空白或崩溃
-        val views = WidgetRenderer.render(context, compact = false, snapshot = null, hasApiKey = false)
-        assertNotNull(views)
-    }
-
-    @Test
-    fun `snapshot without usable data renders guidance view`() {
-        val empty = UsageSnapshot(fetchedAt = Instant.now())
-        val views = WidgetRenderer.render(context, compact = false, snapshot = empty, hasApiKey = true)
-        assertNotNull(views)
-    }
-
-    @Test
-    fun `all-null numeric fields render without throwing`() {
+    fun `every size renders with all-null numeric fields`() {
         // 服务端什么都没返回时，界面必须是 -- 而不是 0
         val blank = snapshot(
             totalRemaining = null,
             usagePercent = null,
+            totalPool = null,
             tokensTotal = null,
             fiveHour = null,
             weekly = null,
             monthly = null,
         )
-        assertNotNull(WidgetRenderer.render(context, compact = false, snapshot = blank, hasApiKey = true))
-        assertNotNull(WidgetRenderer.render(context, compact = true, snapshot = blank, hasApiKey = true))
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, blank, true))
+        }
     }
 
     @Test
-    fun `renders without an api key while cached data survives`() {
-        // 清了 Key 但缓存还在：数据照旧显示，右上角说明未配置
-        val views = WidgetRenderer.render(context, compact = false, snapshot = snapshot(), hasApiKey = false)
-        assertNotNull(views)
-        assertNotNull(WidgetRenderer.render(context, compact = true, snapshot = snapshot(), hasApiKey = false))
+    fun `every size renders when only the weekly window is present`() {
+        val onlyWeekly = snapshot(fiveHour = null, monthly = null)
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, onlyWeekly, true))
+        }
+    }
+
+    @Test
+    fun `every size renders when windows have no caps`() {
+        // used 有、cap 没有：算不出百分比，必须走 -- 且隐藏进度条，而不是 0%
+        val unknown = RateWindow("5 小时", 0.5, null, null)
+        val snapshot = snapshot(fiveHour = unknown, weekly = unknown, monthly = unknown)
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, snapshot, true))
+        }
+    }
+
+    @Test
+    fun `4x4 falls back to the pooled monthly window when the server omits monthly`() {
+        // 本接口的常态：windowLimits 里没有 monthly，只有额度池口径的 usagePercent。
+        // 4×4 必须回落到它（并标「按周期推算」），否则第三张卡片会是空的。
+        val pooled = RateWindow("每月", 7.7, 10.0, null, derived = true)
+        assertNotNull(WidgetRenderer.render(context, Size.FULL, snapshot(monthly = null, totalPool = 10.0, totalRemaining = 2.21), true))
+        assertNotNull(WidgetRenderer.render(context, Size.FULL, snapshot(monthly = pooled), true))
     }
 
     @Test
     fun `non active subscription status still renders`() {
         for (status in listOf("trialing", "past_due", "canceled", "wat")) {
-            assertNotNull(
-                WidgetRenderer.render(context, compact = false, snapshot = snapshot(status = status), hasApiKey = true),
-            )
+            for (size in allSizes) {
+                assertNotNull(WidgetRenderer.render(context, size, snapshot(status = status), true))
+            }
         }
     }
 
     @Test
     fun `account total basis renders`() {
-        val views = WidgetRenderer.render(
-            context,
-            compact = false,
-            snapshot = snapshot(basis = TokenBasis.ACCOUNT_TOTAL),
-            hasApiKey = true,
-        )
-        assertNotNull(views)
+        for (size in allSizes) {
+            assertNotNull(
+                WidgetRenderer.render(context, size, snapshot(basis = TokenBasis.ACCOUNT_TOTAL), true),
+            )
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 空数据 / 未配置 -> 引导视图
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `null snapshot renders the guidance view not a crash`() {
+        // 小米规范 §9：清数据 / 未授权时必须回到默认视图，不能空白或崩溃
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, null, hasApiKey = false))
+        }
+    }
+
+    @Test
+    fun `snapshot without usable data renders guidance view`() {
+        val empty = UsageSnapshot(fetchedAt = Instant.now())
+        for (size in allSizes) {
+            assertNotNull(WidgetRenderer.render(context, size, empty, true))
+        }
     }
 
     @Test
@@ -186,9 +175,14 @@ class WidgetRendererTest {
         WidgetRenderer.updateAll(context)
     }
 
+    // ------------------------------------------------------------------
+    // Provider 可被系统实例化
+    // ------------------------------------------------------------------
+
     @Test
     fun `widget provider classes are resolvable by the system`() {
         // 系统按类名反射实例化 Provider，混淆或改名会直接导致小组件消失
+        assertNotNull(DetailedWidgetProvider())
         assertNotNull(UsageWidgetProvider())
         assertNotNull(CompactWidgetProvider())
         // Kotlin 的 companion 不会被继承，常量定义在基类上
@@ -202,13 +196,16 @@ class WidgetRendererTest {
     // 清单契约：锁死原生小部件必需的注册项，防止后续误删
     // ------------------------------------------------------------------
 
+    /** 三个尺寸的 provider 组件，供下面各条清单契约测试共用。 */
+    private fun allProviderComponents(): List<ComponentName> = listOf(
+        ComponentName(context, DetailedWidgetProvider::class.java),
+        ComponentName(context, UsageWidgetProvider::class.java),
+        ComponentName(context, CompactWidgetProvider::class.java),
+    )
+
     @Test
-    fun `both widget providers declare the appwidget provider config`() {
-        val providers = listOf(
-            ComponentName(context, UsageWidgetProvider::class.java),
-            ComponentName(context, CompactWidgetProvider::class.java),
-        )
-        for (component in providers) {
+    fun `all widget providers declare the appwidget provider config`() {
+        for (component in allProviderComponents()) {
             val info = context.packageManager.getReceiverInfo(
                 component,
                 android.content.pm.PackageManager.GET_META_DATA,
@@ -230,16 +227,13 @@ class WidgetRendererTest {
         // 只有登记过并审核通过的小部件才会进「小部件中心」，而侧载应用应作为
         // 原生小部件走「安卓小部件」入口。
         //
-        // 因此这里反向锁定：两个 receiver 都**不得**再声明 miuiWidget，
+        // 因此这里反向锁定：各 receiver 都**不得**声明 miuiWidget，
         // 应用级也**不得**有 miuiWidgetVersion。它们只作为原生小部件出现。
         // 若日后真的要上架小米小部件中心，请连同登记流程一起改回并更新这条测试。
         //
         // 注：这些小米标识是否真会导致原生入口搜不到，并无官方/社区实证，
         // 所以这里锁的是「不声明未登记的小米能力」这一正确姿势，而非声称能修好搜索。
-        for (component in listOf(
-            ComponentName(context, UsageWidgetProvider::class.java),
-            ComponentName(context, CompactWidgetProvider::class.java),
-        )) {
+        for (component in allProviderComponents()) {
             val info = context.packageManager.getReceiverInfo(
                 component,
                 android.content.pm.PackageManager.GET_META_DATA,
@@ -273,10 +267,7 @@ class WidgetRendererTest {
         // 小组件渲染只读 SharedPreferences、不联网，跑主进程开销极小。
         //
         // 这条测试锁的是「这个决定是刻意的」。
-        for (component in listOf(
-            ComponentName(context, UsageWidgetProvider::class.java),
-            ComponentName(context, CompactWidgetProvider::class.java),
-        )) {
+        for (component in allProviderComponents()) {
             val info = context.packageManager.getReceiverInfo(component, 0)
             val process = info.processName.orEmpty()
             val inMainProcess = process.isEmpty() || process == context.packageName
@@ -298,7 +289,7 @@ class WidgetRendererTest {
         // 容易因为测试环境差异产生假失败）。要锁的本来就是「声明了正确的 action」。
         val xml = readSourceFile("AndroidManifest.xml")
         assertNotNull("找不到 AndroidManifest.xml", xml)
-        for (provider in listOf("UsageWidgetProvider", "CompactWidgetProvider")) {
+        for (provider in listOf("DetailedWidgetProvider", "UsageWidgetProvider", "CompactWidgetProvider")) {
             // 从 `<receiver` 标签开始切片段（不能用 indexOf(provider)：注释里也会提到
             // provider 名与 APPWIDGET_UPDATE，那会造成假通过）
             val nameIdx = xml!!.indexOf(provider)
@@ -320,15 +311,13 @@ class WidgetRendererTest {
     }
 
     @Test
-    fun `both widget sizes share the same label so the system groups them`() {
+    fun `all widget sizes share the same label so the system groups them`() {
         // label 相同会被认为是同一功能的不同尺寸，在添加页聚合展示
-        val a = context.packageManager.getReceiverInfo(
-            ComponentName(context, UsageWidgetProvider::class.java), 0,
-        ).loadLabel(context.packageManager).toString()
-        val b = context.packageManager.getReceiverInfo(
-            ComponentName(context, CompactWidgetProvider::class.java), 0,
-        ).loadLabel(context.packageManager).toString()
-        assertEquals(a, b)
+        val labels = allProviderComponents().map { component ->
+            context.packageManager.getReceiverInfo(component, 0)
+                .loadLabel(context.packageManager).toString()
+        }
+        assertEquals("三个尺寸的 label 必须一致", 1, labels.toSet().size)
     }
 
     @Test
@@ -348,7 +337,7 @@ class WidgetRendererTest {
     fun `appwidget provider xml declares previews so the launcher shows a thumbnail`() {
         // 缺少缩略图时，部分桌面会不显示列表条目。Android 12+ 用 previewLayout，
         // 旧版 / 第三方桌面回退到 previewImage —— 两个都声明才覆盖所有桌面。
-        for (name in listOf("usage_widget_4x2.xml", "usage_widget_2x2.xml")) {
+        for (name in listOf("usage_widget_4x4.xml", "usage_widget_4x2.xml", "usage_widget_2x2.xml")) {
             val xml = readSource("xml/$name")
             assertNotNull("找不到 $name", xml)
             assertTrue("$name 必须声明 previewLayout", xml!!.contains("android:previewLayout="))
@@ -359,9 +348,11 @@ class WidgetRendererTest {
 
     @Test
     fun `appwidget provider xml matches xiaomi size recommendations`() {
-        // 官方《小部件技术规范》建议尺寸：4×2 = 300×110dp，2×2 = 110×110dp。
+        // 官方《小部件技术规范》建议尺寸：4×4 = 300×250dp，4×2 = 300×110dp，2×2 = 110×110dp。
         // 直接读源文件而不是解析编译后的资源：AAPT 会把 dimension 字面量编译掉，
         // 反解容易受打包细节影响；这里要断言的就是「声明值」，读源文件最准确。
+        assertEquals(250, declaredDp("usage_widget_4x4.xml", "minWidth"))
+        assertEquals(250, declaredDp("usage_widget_4x4.xml", "minHeight"))
         assertEquals(300, declaredDp("usage_widget_4x2.xml", "minWidth"))
         assertEquals(110, declaredDp("usage_widget_4x2.xml", "minHeight"))
         assertEquals(110, declaredDp("usage_widget_2x2.xml", "minWidth"))
@@ -372,7 +363,12 @@ class WidgetRendererTest {
     fun `widget layouts declare the xiaomi required root id and opaque background`() {
         // 小米规范 §7.1：系统通过固定 id @android:id/background 找到根布局来加圆角；
         // 且根布局必须有背景色、不能全透明（切换动画依赖背景色）。
-        for (name in listOf("widget_usage_4x2.xml", "widget_usage_2x2.xml", "widget_usage_empty.xml")) {
+        for (name in listOf(
+            "widget_usage_4x4.xml",
+            "widget_usage_4x2.xml",
+            "widget_usage_2x2.xml",
+            "widget_usage_empty.xml",
+        )) {
             val xml = readSource("layout/$name")
             assertNotNull("找不到 $name", xml)
             assertTrue("$name 根布局必须声明 @android:id/background", xml!!.contains("@android:id/background"))
@@ -387,12 +383,26 @@ class WidgetRendererTest {
         // RemoteViews 写一个不存在的 id 时多数动作是**静默跳过**：布局里 id 被改名或删掉，
         // 小组件只会安静地少一块内容，不崩溃也不报错，线上很难发现。
         // 所以这里把「渲染器引用了哪些 id」和「布局声明了哪些 id」强行对起来。
-        val fullXml = readSource("layout/widget_usage_4x2.xml")
+        val detailedXml = readSource("layout/widget_usage_4x4.xml")
+        val wideXml = readSource("layout/widget_usage_4x2.xml")
         val compactXml = readSource("layout/widget_usage_2x2.xml")
-        assertNotNull("找不到 widget_usage_4x2.xml", fullXml)
+        assertNotNull("找不到 widget_usage_4x4.xml", detailedXml)
+        assertNotNull("找不到 widget_usage_4x2.xml", wideXml)
         assertNotNull("找不到 widget_usage_2x2.xml", compactXml)
-        val full: String = fullXml!!
+        val detailed: String = detailedXml!!
+        val wide: String = wideXml!!
         val compact: String = compactXml!!
+
+        // 4×4：三个窗口卡片，每个都有一整套控件
+        for (prefix in listOf("fivehour", "weekly", "monthly")) {
+            for (suffix in listOf("card", "title", "note", "percent", "bar", "remaining", "reset")) {
+                val id = "widget_${prefix}_$suffix"
+                assertTrue("4×4 布局缺少 @+id/$id", detailed.contains("@+id/$id"))
+            }
+        }
+        for (id in listOf("widget_plan", "widget_updated")) {
+            assertTrue("4×4 布局缺少 @+id/$id", detailed.contains("@+id/$id"))
+        }
 
         for (id in listOf(
             "widget_plan",
@@ -406,16 +416,17 @@ class WidgetRendererTest {
             "widget_tokens",
             "widget_tokens_label",
         )) {
-            assertTrue("4×2 布局缺少 @+id/$id", full.contains("@+id/$id"))
+            assertTrue("4×2 布局缺少 @+id/$id", wide.contains("@+id/$id"))
         }
         for (id in listOf("widget_windows", "widget_percent", "widget_monthly_progress", "widget_tokens")) {
             assertTrue("2×2 布局缺少 @+id/$id", compact.contains("@+id/$id"))
         }
 
         // 改版移除的 id 必须从布局里删干净，否则会被下一条检查当成合法目标
-        assertFalse("4×2 不应再有 widget_remaining", full.contains("widget_remaining"))
+        assertFalse("4×2 不应再有 widget_remaining", wide.contains("widget_remaining"))
         assertFalse("2×2 不应再有 widget_plan（高度不够，已让位给 5 小时/每周）", compact.contains("widget_plan"))
         assertFalse("2×2 不应再有 widget_percent_caption", compact.contains("widget_percent_caption"))
+        assertFalse("4×2 不应再有 4×4 的卡片 id", wide.contains("widget_fivehour_card"))
 
         // 渲染器引用的每个 R.id.widget_* 必须真实存在于某个布局
         val rendererXml = readSourceFile("kotlin/dev/zxeb/ccusage/widget/WidgetRenderer.kt")
@@ -425,11 +436,39 @@ class WidgetRendererTest {
             .map { it.groupValues[1] }
             .toSet()
         assertTrue("渲染器应当引用小组件 id", referenced.isNotEmpty())
+        val allLayouts = detailed + wide + compact
         for (id in referenced) {
             assertTrue(
-                "WidgetRenderer 引用了 $id，但两个布局里都没有这个 id",
-                full.contains("@+id/$id") || compact.contains("@+id/$id"),
+                "WidgetRenderer 引用了 $id，但三个布局里都没有这个 id",
+                allLayouts.contains("@+id/$id"),
             )
+        }
+    }
+
+    @Test
+    fun `layout xml uses only remoteviews supported views`() {
+        // RemoteViews 只支持有限的一组 View。一旦布局里出现 ConstraintLayout、
+        // 或自定义 View，应用 RemoteViews 时会在**运行时**抛
+        // "android.view.InflateException / ClassNotFoundException"，
+        // 桌面上表现为小组件空白（不是崩溃弹窗，很难查）。
+        val allowed = setOf(
+            "FrameLayout", "LinearLayout", "RelativeLayout", "GridLayout",
+            "TextView", "ImageView", "Button", "ProgressBar", "Chronometer",
+            "View", "Space", "AnalogClock",
+        )
+        for (name in listOf("widget_usage_4x4.xml", "widget_usage_4x2.xml", "widget_usage_2x2.xml")) {
+            val xml = readSource("layout/$name")!!
+            // 取所有标签名（含闭包前的），排除 layout_* 属性与资源引用
+            val tags = Regex("""<([A-Za-z][A-Za-z0-9_.]*)""").findAll(xml)
+                .map { it.groupValues[1] }
+                .filterNot { it.startsWith("?") }
+                .toSet()
+            for (tag in tags) {
+                assertTrue(
+                    "$name 使用了 RemoteViews 不支持的 <$tag>（会导致桌面空白）",
+                    tag in allowed,
+                )
+            }
         }
     }
 
@@ -483,7 +522,12 @@ class WidgetRendererTest {
     @Test
     fun `widget layouts expose the required root id`() {
         // 小米规范 §7.1：系统通过固定 id @android:id/background 找到根布局并加圆角
-        val ids = listOf(R.layout.widget_usage_4x2, R.layout.widget_usage_2x2, R.layout.widget_usage_empty)
+        val ids = listOf(
+            R.layout.widget_usage_4x4,
+            R.layout.widget_usage_4x2,
+            R.layout.widget_usage_2x2,
+            R.layout.widget_usage_empty,
+        )
         for (layoutId in ids) {
             val views = android.widget.RemoteViews(context.packageName, layoutId)
             // 能构建即说明布局资源可解析
