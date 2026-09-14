@@ -104,15 +104,18 @@ object WidgetText {
     /**
      * `"剩余 $2.77 / $3.00"`。
      *
-     * `cap` 缺失时只给剩余（应用内同样是「有 cap 才拼 / cap」）。
+     * 剩余算不出来时（缺 used 或 cap）只给 `"剩余 --"`，**不拼出 `剩余 -- / $3.00`**
+     * 这种半截文案 —— 那既不好看，也容易被读成「剩余是 0、额度是 3.00」。
      */
-    fun remainingLine(window: RateWindow?): String = buildString {
-        append("剩余 ")
-        append(Format.usd(window?.remaining))
-        val cap = window?.cap
-        if (cap != null) {
-            append(" / ")
-            append(Format.usd(cap))
+    fun remainingLine(window: RateWindow?): String {
+        val remaining = window?.remaining ?: return "剩余 ${Format.UNKNOWN}"
+        return buildString {
+            append("剩余 ")
+            append(Format.usd(remaining))
+            window.cap?.let {
+                append(" / ")
+                append(Format.usd(it))
+            }
         }
     }
 

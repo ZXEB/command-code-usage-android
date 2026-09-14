@@ -301,16 +301,21 @@ object WidgetRenderer {
      * 应用内 2×2/概览也是这么回落的。`derived` 置 true，界面会标「按周期推算」。
      */
     private fun pooledMonthlyWindow(snapshot: UsageSnapshot): RateWindow? {
-        // 额度池口径至少要有「已用百分比」或「剩余」才有得显示，否则不合成（卡片会是空的）
-        val percent = snapshot.usagePercent
-        val remaining = snapshot.totalRemaining
-        if (percent == null && remaining == null) return null
-
-        // 有 cap 就用百分比反推 used，让 RateWindow 的 percent 计算与额度池口径自洽；
-        // 没有 cap 时只带 used=null（RateWindow.percent 会返回 null，界面走 -- 并隐藏进度条），
-        // 但保留 remaining 让「剩余 $x」那行仍有内容。
         val cap = snapshot.totalPool
-        val used = if (cap != null && percent != null) cap * percent / 100.0 else null
+        val remaining = snapshot.totalRemaining
+        val percent = snapshot.usagePercent
+        // 至少要有 cap 才谈得上「额度窗口」（没有 cap 就算不出比例与剩余）
+        if (cap == null) return null
+
+        // RateWindow 的 percent/remaining 都由 used 与 cap 推导，所以这里只要求出 used：
+        // - 有 cap 与 remaining    -> used = cap - remaining（同时保住剩余那一行）
+        // - 只有 cap 与 usagePercent -> used = cap * percent
+        // 优先用 remaining 反推：这样「剩余 $x」永远有值（百分比缺失时也不丢信息）。
+        val used = when {
+            remaining != null -> (cap - remaining).coerceAtLeast(0.0)
+            percent != null -> cap * percent / 100.0
+            else -> return null
+        }
 
         return RateWindow(
             label = "每月",

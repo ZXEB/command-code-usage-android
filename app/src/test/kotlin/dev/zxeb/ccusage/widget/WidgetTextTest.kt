@@ -161,12 +161,15 @@ class WidgetTextTest {
 
     @Test
     fun `remaining line omits the cap when the server does not provide one`() {
-        // 应用内同样是「有 cap 才拼 / cap」
-        assertEquals("剩余 $2.50", WidgetText.remainingLine(window(0.5, null)))
+        // RateWindow.remaining 需要 used 与 cap 同时存在；缺 cap 就算不出剩余 ->
+        // 只显示「剩余 --」，不要拼成「剩余 -- / $x」或硬凑一个数字
+        assertEquals("剩余 --", WidgetText.remainingLine(window(0.5, null)))
     }
 
     @Test
     fun `remaining line degrades to placeholder without data`() {
+        // used 缺失 -> remaining 未知；此时即使 cap 有值也不能拼出 `剩余 -- / $3.00`
+        // （既丑，也容易被读成「剩余 0、额度 3.00」）
         assertEquals("剩余 --", WidgetText.remainingLine(window(null, 3.0)))
         assertEquals("剩余 --", WidgetText.remainingLine(null))
     }
