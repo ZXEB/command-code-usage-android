@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -35,15 +38,16 @@ import androidx.compose.ui.unit.sp
 import dev.zxeb.ccusage.CcUsageApp
 import dev.zxeb.ccusage.R
 import dev.zxeb.ccusage.model.DataSource
-import dev.zxeb.ccusage.ui.components.GlassBottomBar
 import dev.zxeb.ccusage.ui.components.GlassTopButton
 import dev.zxeb.ccusage.ui.components.HyperMenu
+import dev.zxeb.ccusage.ui.glass.component.FloatingBottomBar
+import dev.zxeb.ccusage.ui.glass.component.FloatingBottomBarItem
 import dev.zxeb.ccusage.widget.WidgetRefreshWorker
 import dev.zxeb.ccusage.widget.WidgetRenderer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.NavigationItem
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarHost
@@ -57,6 +61,8 @@ import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.VerticalSplit
+import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
+import top.yukonga.miuix.kmp.shader.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.Instant
 
@@ -102,11 +108,15 @@ fun CcUsageRoot() {
 
     val items = remember {
         listOf(
-            NavigationItem(context.getString(R.string.tab_overview), MiuixIcons.VerticalSplit),
-            NavigationItem(context.getString(R.string.tab_detail), MiuixIcons.Info),
-            NavigationItem(context.getString(R.string.tab_settings), MiuixIcons.Settings),
+            TabSpec(context.getString(R.string.tab_overview), MiuixIcons.VerticalSplit),
+            TabSpec(context.getString(R.string.tab_detail), MiuixIcons.Info),
+            TabSpec(context.getString(R.string.tab_settings), MiuixIcons.Settings),
         )
     }
+
+    // 液态玻璃需要两类 GPU 能力都在：RenderEffect 做背景模糊采样、AGSL 跑折射着色器。
+    // 缺任意一项就退回实色 pill —— 组件保证这个降级是完整可用的（保留位移/缩放动效）。
+    val glassSupported = remember { isRenderEffectSupported() && isRuntimeShaderSupported() }
 
     // ⋮ 菜单
     var menuExpanded by remember { mutableStateOf(false) }
@@ -255,22 +265,58 @@ fun CcUsageRoot() {
                 },
             )
 
-            // ---- 底部玻璃导航 ----
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                GlassBottomBar(
-                    backdrop = backdrop,
-                    items = items,
-                    selectedIndex = selectedIndex,
-                    onSelect = goto,
-                    actionIcon = MiuixIcons.Refresh,
-                    actionLabel = context.getString(R.string.action_refresh),
-                    onAction = doRefresh,
-                    actionEnabled = !state.refreshing,
-                )
+            // ---- 底部液态玻璃悬浮导航 ----
+            //
+            // 悬浮形态：左右留 28dp 让玻璃边缘有内容可采样，底部避开手势条。
+            // 内容区不为它留 padding，滚动内容从玻璃下方穿过 —— 这正是折射的来源。
+            FloatingBottomBar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 28.dp, end = 28.dp, bottom = 16.dp),
+                selectedIndex = selectedIndex,
+                // 组件约定：外部改 selectedIndex 只驱动 pill 动画，不会回调；
+                // 只有用户点按/拖拽结束才走 onSelected。这里统一交给 goto() 滑页，
+                // pill 会随 pager 的 targetPage 回流（LaunchedEffect 同步）。
+                onSelected = goto,
+                backdrop = backdrop,
+                tabsCount = items.size,
+                isBlurEnabled = glassSupported,
+            ) { activateTab ->
+                items.forEachIndexed { index, tab ->
+                    FloatingBottomBarItem(
+                        selected = selectedIndex == index,
+                        // 必须调组件给的 activateTab，不要自己去改 selectedIndex：
+                        // 它会同时驱动 pill 与拖拽状态，自己改会和 pager 互相打架。
+                        onClick = { activateTab(index) },
+                        // ⚠️ 必需：item 用 weight(1f)，而父 Row 是 IntrinsicSize.Min 测量，
+                        // 此时 weight 子项宽度算出来是 0 —— 没有 minWidth 兜底整条栏会塌缩。
+                        modifier = Modifier.defaultMinSize(minWidth = 76.dp),
+                    ) {
+                        Icon(
+                            imageVector = tab.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            text = tab.label,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+/**
+ * 一个底栏 tab 的描述（标题 + 图标）。
+ *
+ * 不复用 Miuix 的 `NavigationItem`：那个类型是给 `FloatingNavigationBar` 用的，
+ * 这里换成自绘的液态玻璃底栏后只需要这两个字段，用最小结构避免耦合库内类型。
+ */
+private data class TabSpec(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
 /**
  * 滚动内容顶部的大标题（澎湃 4 图库的「最近/浏览」形态）。
