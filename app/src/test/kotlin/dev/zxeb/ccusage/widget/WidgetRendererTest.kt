@@ -363,6 +363,56 @@ class WidgetRendererTest {
     }
 
     @Test
+    fun `declared resize floors keep the content inside the widget`() {
+        // 用户反馈「调整尺寸后这个显示会出现一点问题」：4×4 曾声明 minResizeHeight=180dp，
+        // 而它三张卡片的内容自然高度合计约需 347dp（250dp 时每卡约 70dp 已是「刚好放得下」
+        // 的下限），缩到 180dp 后每卡只剩约 47dp，「剩余 $x / $y」与「N后重置」两行直接被裁掉。
+        //
+        // 注意 Android 的语义（见 AOSP AppWidgetProviderInfo）：
+        //   minWidth/minHeight     = 添加到桌面时的默认尺寸；
+        //   minResizeWidth/Height  = 用户**能缩到的最小尺寸**；大于 minWidth 时该项无效果。
+        // 所以 minResize* **允许**小于 min*（那正是「允许缩得比默认更小」的表达方式），
+        // 不能笼统断言 minResize >= min。这里锁的是「允许缩到的下限别小到装不下内容」，
+        // 按各布局实测的内容需求分别给出下限。
+        //
+        // 不在这里按字体度量实算自然高度：那需要真实 Android 字体度量，JVM 单测里不可靠。
+        // 下限来自本地实测（见各 usage_widget_*.xml 顶部注释），这里把它固定下来防止回退。
+        val contentFloors = mapOf(
+            // 三张卡片（标题行含 18sp 百分比 + 条 + 剩余 + 重置）需要 ~347dp 才宽松；
+            // 250dp 是刚好放得下、不会裁掉文字的下限
+            "usage_widget_4x4.xml" to (250 to 250),
+            // 行1 固定部分约 127dp，180dp 时套餐名只剩约 29dp 会被省略、条只剩 60dp；
+            // 240dp 起套餐名有约 89dp、条有 120dp
+            "usage_widget_4x2.xml" to (240 to 110),
+            // 2×2 本来就只有一个大数字 + 一条 + 一行，110dp 已是设计下限
+            "usage_widget_2x2.xml" to (110 to 110),
+        )
+
+        for ((file, floor) in contentFloors) {
+            val (minW, minH) = floor
+            val resizeW = declaredDp(file, "minResizeWidth")
+            val resizeH = declaredDp(file, "minResizeHeight")
+            assertTrue(
+                "$file 的 minResizeWidth($resizeW) 小于内容可承受的下限 ${minW}dp：缩到这个宽度内容会被裁/挤压",
+                resizeW >= minW,
+            )
+            assertTrue(
+                "$file 的 minResizeHeight($resizeH) 小于内容可承受的下限 ${minH}dp：缩到这个高度内容会被裁",
+                resizeH >= minH,
+            )
+            // 上限与下限不能自相矛盾（maxResize 比 minResize 还小是无效声明）
+            assertTrue(
+                "$file 的 maxResizeWidth(${declaredDp(file, "maxResizeWidth")}) 不应小于 minResizeWidth($resizeW)",
+                declaredDp(file, "maxResizeWidth") >= resizeW,
+            )
+            assertTrue(
+                "$file 的 maxResizeHeight(${declaredDp(file, "maxResizeHeight")}) 不应小于 minResizeHeight($resizeH)",
+                declaredDp(file, "maxResizeHeight") >= resizeH,
+            )
+        }
+    }
+
+    @Test
     fun `widget layouts declare the xiaomi required root id and opaque background`() {
         // 小米规范 §7.1：系统通过固定 id @android:id/background 找到根布局来加圆角；
         // 且根布局必须有背景色、不能全透明（切换动画依赖背景色）。

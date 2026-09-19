@@ -6,6 +6,13 @@
   targetCellWidth/Height 是 Android 12+ 的原生网格单位，一并声明以提高在非小米桌面上的排版准确度。
   previewImage 与 previewLayout 都给：Android 12+ 优先用 previewLayout（真布局），
   Android 12 以下 / 部分第三方桌面只认 previewImage，缺了它列表条目可能没有缩略图。
+
+  ⚠️ minResizeHeight 必须 ≥ 250dp（= minHeight）：每张卡片的内容自然高度约 102dp
+  （标题行含 18sp 百分比 + 进度条 + 剩余 + 重置两行文字），三张卡片加上顶部与卡片间距
+  至少需要约 347dp 才完全不挤；250dp 时每卡约 70dp，靠卡片自身的 layout_weight 等分，
+  已经是「刚好放得下、余量很小」的下限。旧值 180dp 会让每卡只剩约 47dp，
+  「剩余 / 重置」两行会被裁掉——这正是用户反馈的「调整尺寸后显示有问题」。
+  改小之前请先按上面口径重算，别只改数字。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
@@ -13,7 +20,7 @@
     android:targetCellWidth="4"
     android:targetCellHeight="4"
     android:minResizeWidth="250dp"
-    android:minResizeHeight="180dp"
+    android:minResizeHeight="250dp"
     android:maxResizeWidth="400dp"
     android:maxResizeHeight="400dp"
     android:updatePeriodMillis="0"

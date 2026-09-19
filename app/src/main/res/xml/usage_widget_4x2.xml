@@ -13,16 +13,27 @@
   - Android 12+ 的桌面优先用 previewLayout（真布局渲染，观感最新）；
   - Android 12 以下 / 部分第三方桌面只认 previewImage，缺了它列表条目可能
     没有缩略图、甚至被桌面过滤掉。两个都给才能覆盖所有桌面。
+
+  ⚠️ 尺寸边界说明（改之前先按布局重算，别只改数字）：
+  内容自然高度约 111dp（行1 约 16dp + 行距 4dp + 三行各约 22dp），所以
+  minHeight = minResizeHeight = 110dp 是「刚好放得下」的下限，不能再小。
+  minResizeWidth 从 180dp 收到 240dp：行1 的固定部分（tokens 46dp + 口径 43dp +
+  时间 23dp + 间距）实测约 127dp，180dp 时留给套餐名只剩约 29dp，
+  「Command Code」会被省略成「Co…」；240dp 才有约 89dp 容纳它。
+  同时内联版式的条长 = 宽 − 24（padding）− 80（两侧定宽列）− 16（间距）：
+  180dp 时只剩 60dp，比数字本身还短，反而不像进度条；240dp 起有 120dp。
+  maxResizeHeight 从 180dp 收到 160dp：三行是 layout_weight=1 均分，
+  高度给到 180dp 时每行会多出约 23dp 空白，三行被拉得很散（观感上的「不对劲」）。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="300dp"
     android:minHeight="110dp"
     android:targetCellWidth="4"
     android:targetCellHeight="2"
-    android:minResizeWidth="180dp"
+    android:minResizeWidth="240dp"
     android:minResizeHeight="110dp"
     android:maxResizeWidth="400dp"
-    android:maxResizeHeight="180dp"
+    android:maxResizeHeight="160dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_usage_4x2"
     android:previewLayout="@layout/widget_usage_4x2"

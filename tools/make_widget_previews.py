@@ -158,10 +158,14 @@ def make_4x4():
 
 
 def make_4x2():
-    """三个窗口**竖排**（一行一个）：名称在左、已用% 在右，下面一条通栏进度条。
+    """三个窗口**竖排**，每行「名称 | 进度条 | 已用%」三段同行。
 
     与布局 widget_usage_4x2.xml 一一对应：行1 = 套餐名 + tokens + 更新时间（共用一行），
     行2/3/4 = 5 小时 / 每周 / 每月，三行按 layout_weight=1 均分剩余高度。
+
+    进度条是**居中的那一段**（左右各有一个 40dp 定宽列 + 8dp 间距），不是通栏：
+    通栏时条长达 276dp × 3dp（约 90:1），看起来像一条横贯卡片的细线；
+    被两侧文字夹住后约 180dp，三行的条左右端点还对得齐，比例可以纵向直接比较。
     """
     img, draw = new_card(300, 110)
     pad = dp(12)
@@ -170,8 +174,14 @@ def make_4x2():
     f_stamp = font(REGULAR, 9)
     f_tokens = font(BOLD, 12)
     f_caption = font(REGULAR, 8)
-    f_label = font(REGULAR, 10)
+    f_label = font(REGULAR, 11)
     f_value = font(BOLD, 13)
+
+    # 与布局一致的固定列宽与间距
+    label_col = dp(40)
+    value_col = dp(40)
+    gap = dp(8)
+    bar_h = dp(5)
 
     # 行1：套餐名（左）；tokens 数值 + 口径说明 + 更新时间（右）
     draw.text((pad, pad), "Go", font=f_plan, fill=TEXT_PRIMARY)
@@ -189,27 +199,38 @@ def make_4x2():
     tw, _ = text_width(draw, tokens, f_tokens)
     draw.text((caption_left - dp(3) - tw, pad + dp(1)), tokens, font=f_tokens, fill=TEXT_PRIMARY)
 
-    # 行2-4：三个窗口竖排，均分剩余高度（对应 layout_weight=1）
-    rows_top = pad + dp(15) + dp(4)
-    row_h = (img.height - pad - rows_top) // 3
+    # 行2-4：三个窗口竖排，均分剩余高度并**行内垂直居中**（对应 layout_weight=1 + gravity=center_vertical）
+    rows_top = pad + dp(16) + dp(4)
+    row_h = (img.height - pad - rows_top) / 3
 
     # 取值与 make_4x4 保持一致，便于对照。刻意**不用 0%**：0% 画出来就是一条空轨道，
     # 在缩略图里会被误读成「进度条坏了」——正是这一版要修的那个毛病。
     windows = [("5 小时", 7), ("每周", 31), ("每月", 77)]
     for index, (label, used) in enumerate(windows):
-        text_top = rows_top + index * row_h + dp(3)
         color = utilization_color(used)
+        cy = rows_top + index * row_h + row_h / 2
 
-        # 名称（左，次要色）
-        draw.text((pad, text_top), label, font=f_label, fill=TEXT_SECONDARY)
+        # 名称（左定宽列，次要色）
+        _, lh = text_width(draw, label, f_label)
+        draw.text((pad, cy - lh / 2 - dp(1)), label, font=f_label, fill=TEXT_SECONDARY)
 
-        # 已用%（右，按档位着色）
+        # 已用%（右定宽列，右对齐，按档位着色）
         pct = f"{used}%"
-        pw, _ = text_width(draw, pct, f_value)
-        draw.text((img.width - pad - pw, text_top - dp(1)), pct, font=f_value, fill=color)
+        pw, ph = text_width(draw, pct, f_value)
+        draw.text((img.width - pad - pw, cy - ph / 2 - dp(1)), pct, font=f_value, fill=color)
 
-        # 通栏进度条（同色）
-        draw_bar(draw, pad, text_top + dp(16), img.width - pad * 2, dp(3), used, color)
+        # 居中的进度条（同色），左右端点三行对齐
+        bar_x0 = pad + label_col + gap
+        bar_x1 = img.width - pad - value_col - gap
+        bar_w = bar_x1 - bar_x0
+        by = cy - bar_h / 2
+        r = bar_h / 2
+        draw.rounded_rectangle([(bar_x0, by), (bar_x1, by + bar_h)], radius=r, fill=TRACK)
+        filled = int(bar_w * used / 100.0)
+        if filled > 0:
+            draw.rounded_rectangle(
+                [(bar_x0, by), (bar_x0 + max(filled, bar_h), by + bar_h)], radius=r, fill=color
+            )
 
     return img
 
