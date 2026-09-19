@@ -3,6 +3,9 @@ package dev.zxeb.ccusage.widget
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.ProgressBar
 import dev.zxeb.ccusage.R
 import dev.zxeb.ccusage.data.SettingsStore
 import dev.zxeb.ccusage.model.RateWindow
@@ -470,6 +473,101 @@ class WidgetRendererTest {
                 )
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 进度条的真实值
+    //
+    // 这一组正是旧版漏掉的环节：布局里写死 `android:progress="0"`，渲染器只调
+    // setProgressTintList 上色、从不写进度值，于是桌面上永远是「数字正常、条是空条」。
+    // 之前所有测试都只断言「布局里出现了 ProgressBar 这个标签」，没人读过它的实际值，
+    // 所以这个故障一路溜到了用户面前。这里把「条画多长」也锁住。
+    // ------------------------------------------------------------------
+
+    /** 把 RemoteViews 应用到真实视图树上，以便读控件的最终状态。 */
+    private fun appliedView(size: Size, snapshot: UsageSnapshot?): View {
+        // 布局里用了 ?android:attr/progressBarStyleHorizontal 这类主题属性，
+        // 必须挂上应用主题再 inflate，否则在测试环境里解析不到该属性。
+        val themed = android.view.ContextThemeWrapper(context, R.style.Theme_CcUsage)
+        return WidgetRenderer.render(context, size, snapshot, hasApiKey = true)
+            .apply(themed, FrameLayout(themed))
+    }
+
+    private fun progressBarOf(size: Size, snapshot: UsageSnapshot?, barId: Int): ProgressBar {
+        val bar = appliedView(size, snapshot).findViewById<ProgressBar>(barId)
+        assertNotNull("$size 里找不到进度条 $barId", bar)
+        return bar!!
+    }
+
+    @Test
+    fun `progress bars carry the used percentage instead of the layout default`() {
+        // snapshot() 默认：5 小时 0.072/3.0 = 2%、每周 5/100 = 5%、每月 12/100 = 12%
+        val cases = listOf(
+            Triple(Size.FULL, R.id.widget_fivehour_bar, 2),
+            Triple(Size.FULL, R.id.widget_weekly_bar, 5),
+            Triple(Size.FULL, R.id.widget_monthly_bar, 12),
+            Triple(Size.WIDE, R.id.widget_bar_fivehour, 2),
+            Triple(Size.WIDE, R.id.widget_bar_weekly, 5),
+            Triple(Size.WIDE, R.id.widget_bar_monthly, 12),
+            Triple(Size.COMPACT, R.id.widget_monthly_progress, 12),
+        )
+        for ((size, barId, expected) in cases) {
+            // 分母 100 由布局的 android:max 保证，这里顺带锁死它
+            val bar = progressBarOf(size, snapshot(), barId)
+            assertEquals("$size 的进度条 max 应为 100", 100, bar.max)
+            assertEquals("$size 的进度条必须写入已用比例（而不是布局默认的 0）", expected, bar.progress)
+        }
+    }
+
+    @Test
+    fun `progress bar mirrors the percentage shown next to it`() {
+        // 条与数字必须同源：数字 87% 时条也得是 87，不能各算各的
+        val monthly = RateWindow("每月", 87.0, 100.0, null)
+        val bar = progressBarOf(Size.WIDE, snapshot(monthly = monthly), R.id.widget_bar_monthly)
+        assertEquals(87, bar.progress)
+    }
+
+    @Test
+    fun `progress bars stay hidden instead of reading as zero when data is missing`() {
+        // 没有 cap 就算不出百分比：必须隐藏，画成 0% 会被读成「完全没用过」
+        val unknown = RateWindow("5 小时", 0.5, null, null)
+        val blank = snapshot(
+            fiveHour = unknown,
+            weekly = unknown,
+            monthly = unknown,
+            totalPool = null,
+            totalRemaining = null,
+            usagePercent = null,
+        )
+        for ((size, barId) in listOf(
+            Size.FULL to R.id.widget_fivehour_bar,
+            Size.WIDE to R.id.widget_bar_fivehour,
+            Size.COMPACT to R.id.widget_monthly_progress,
+        )) {
+            assertEquals(
+                "$size 在数据缺失时必须隐藏进度条（不能画成 0%）",
+                View.INVISIBLE,
+                progressBarOf(size, blank, barId).visibility,
+            )
+        }
+    }
+
+    @Test
+    fun `4x2 falls back to the pooled monthly window when the server omits monthly`() {
+        // 本接口的常态：windowLimits 里没有 monthly。4×2 的「每月」行同样要回落，
+        // 否则那一行恒为 --，而它恰恰是最需要看的数字（4×4 早就有这个回落，4×2 曾漏掉）。
+        val bar = progressBarOf(
+            Size.WIDE,
+            snapshot(monthly = null, totalPool = 10.0, totalRemaining = 2.21),
+            R.id.widget_bar_monthly,
+        )
+        // (10.0 - 2.21) / 10.0 = 77.9% -> 截断 77
+        assertEquals("4×2 的每月行必须回落到额度池口径", 77, bar.progress)
+        assertEquals(
+            "回落算出来的每月必须可见（不能因为服务端没给就隐藏）",
+            View.VISIBLE,
+            bar.visibility,
+        )
     }
 
     /** 读取 `app/src/main/res/<relative>` 源文件。Gradle 单测的工作目录就是模块目录。 */

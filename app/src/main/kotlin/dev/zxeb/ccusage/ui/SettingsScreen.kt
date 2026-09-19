@@ -157,7 +157,8 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "提供 4×2（完整）与 2×2（精简）两种尺寸，在桌面添加时可选。",
+                    text = "提供 4×4（详细，每个窗口带剩余与重置时间）、4×2（三个窗口竖排）" +
+                        "与 2×2（精简）三种尺寸，在桌面添加时可选。",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )

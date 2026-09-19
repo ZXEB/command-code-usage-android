@@ -7,15 +7,21 @@
   - 根布局必须有背景色且不能全透明（切换动画依赖背景色）；
   - 不使用绝对尺寸/绝对位置。
 
-  内容（自 4×2 改版起）：
-  行1  套餐名 + 更新时间（陈旧时由渲染器补 ⚠）
-  行2  5 小时 / 每周 / 每月 三列，每列 = 名称 + 剩余百分比 + 细进度条
-  行3  本计费周期 tokens（大字）+ 口径说明
+  内容（自本版起改为**竖排三行**，与应用内「明细」的窗口卡片同构）：
+  行1  套餐名 + 本计费周期 tokens …… 更新时间（陈旧时由渲染器补 ⚠）
+  行2  5 小时   名称在左、已用% 在右，下面一条进度条
+  行3  每周     同上
+  行4  每月     同上
 
-  行2 用 layout_weight=1 吸收不同桌面高度（4×2/4×3 网格、有无搜索框）带来的高度差，
-  列内一律 wrap_content，不用绝对尺寸。字号是按 110dp 高度算过预算的：
-  行1 约 14dp + 行距 5dp + 行2 约 35dp + 行距 3dp + 行3 约 24dp ≈ 81dp ≤ 86dp（内容区高度），
-  放大到 4×3 时多出来的高度落在行2 上，不会把内容挤出边界。
+  为什么从「三列并排」改成竖排：横排时「名称 / 数值 / 进度条」三段被压在 1/3 宽度里，
+  三个数字的进位会互相错位，且进度条只有约 60dp 长、比例几乎看不出来。竖排后每根条都是
+  通栏宽度（276dp），比例一眼能读，也与应用内明细卡片一致。
+
+  高度预算（110dp 内容区 86dp）：行1 约 14dp + 行距 4dp，剩 68dp 给三行 → 每行 22.6dp；
+  每行 = 行高约 16dp（10sp 文字）+ 距 2dp + 条 3dp = 21dp，余量约 1.5dp/行。
+  三行都挂 layout_weight=1 并**行内居中**：不同桌面/网格（4×2、4×3、有无搜索框）给的高度
+  不一样，按权重均分能让三行始终占满、不会被裁掉，余量不足时也是三行一起等分收缩，
+  而不是末行单独被切；行内一律 wrap_content，不写绝对高度。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/background"
@@ -29,7 +35,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- 行1：套餐名 + 更新时间 -->
+        <!-- 行1：套餐名 + tokens + 更新时间（三者共用一行，避免再占一行高度） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -49,6 +55,27 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/widget_tokens"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:maxLines="1"
+                android:text="@string/widget_placeholder_value"
+                android:textColor="@color/widget_text_primary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_tokens_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="3dp"
+                android:maxLines="1"
+                android:text="@string/widget_tokens_caption"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="8sp" />
+
+            <TextView
                 android:id="@+id/widget_updated"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -59,162 +86,143 @@
                 android:textSize="9sp" />
         </LinearLayout>
 
-        <!-- 行2：三个用量窗口并排，每列 名称 / 剩余% / 进度条 -->
+        <!-- 行2：5 小时 —— 名称 + 已用% + 通栏进度条 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:layout_marginTop="4dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:baselineAligned="false">
+            android:orientation="vertical"
+            android:gravity="center_vertical">
 
-            <!-- 5 小时窗口 -->
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:gravity="center_horizontal">
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:maxLines="1"
                     android:text="@string/widget_window_fivehour"
                     android:textColor="@color/widget_text_secondary"
-                    android:textSize="9sp" />
+                    android:textSize="10sp" />
 
                 <TextView
                     android:id="@+id/widget_fivehour"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
+                    android:layout_marginStart="6dp"
                     android:maxLines="1"
                     android:text="@string/widget_placeholder_value"
                     android:textColor="@color/widget_text_primary"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
-
-                <ProgressBar
-                    android:id="@+id/widget_bar_fivehour"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="4dp"
-                    android:layout_marginTop="2dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressDrawable="@drawable/widget_progress" />
             </LinearLayout>
 
-            <!-- 每周窗口 -->
+            <ProgressBar
+                android:id="@+id/widget_bar_fivehour"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginTop="2dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/widget_progress" />
+        </LinearLayout>
+
+        <!-- 行3：每周 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
+
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:orientation="vertical"
-                android:gravity="center_horizontal">
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:maxLines="1"
                     android:text="@string/widget_window_weekly"
                     android:textColor="@color/widget_text_secondary"
-                    android:textSize="9sp" />
+                    android:textSize="10sp" />
 
                 <TextView
                     android:id="@+id/widget_weekly"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
+                    android:layout_marginStart="6dp"
                     android:maxLines="1"
                     android:text="@string/widget_placeholder_value"
                     android:textColor="@color/widget_text_primary"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
-
-                <ProgressBar
-                    android:id="@+id/widget_bar_weekly"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="4dp"
-                    android:layout_marginTop="2dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressDrawable="@drawable/widget_progress" />
             </LinearLayout>
 
-            <!-- 每月窗口 -->
+            <ProgressBar
+                android:id="@+id/widget_bar_weekly"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginTop="2dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/widget_progress" />
+        </LinearLayout>
+
+        <!-- 行4：每月 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
+
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:orientation="vertical"
-                android:gravity="center_horizontal">
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:maxLines="1"
                     android:text="@string/widget_window_monthly"
                     android:textColor="@color/widget_text_secondary"
-                    android:textSize="9sp" />
+                    android:textSize="10sp" />
 
                 <TextView
                     android:id="@+id/widget_monthly"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
+                    android:layout_marginStart="6dp"
                     android:maxLines="1"
                     android:text="@string/widget_placeholder_value"
                     android:textColor="@color/widget_text_primary"
-                    android:textSize="14sp"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
-
-                <ProgressBar
-                    android:id="@+id/widget_bar_monthly"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="4dp"
-                    android:layout_marginTop="2dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressDrawable="@drawable/widget_progress" />
             </LinearLayout>
-        </LinearLayout>
 
-        <!-- 行3：本计费周期 token（大字，视觉重心） -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:orientation="horizontal"
-            android:gravity="bottom|center_vertical">
-
-            <TextView
-                android:id="@+id/widget_tokens"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:text="@string/widget_placeholder_value"
-                android:textColor="@color/widget_text_primary"
-                android:textSize="19sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/widget_tokens_label"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="5dp"
-                android:layout_marginBottom="3dp"
-                android:maxLines="1"
-                android:text="@string/widget_tokens_caption"
-                android:textColor="@color/widget_text_secondary"
-                android:textSize="9sp" />
+            <ProgressBar
+                android:id="@+id/widget_bar_monthly"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginTop="2dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/widget_progress" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

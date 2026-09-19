@@ -158,47 +158,59 @@ def make_4x4():
 
 
 def make_4x2():
+    """三个窗口**竖排**（一行一个）：名称在左、已用% 在右，下面一条通栏进度条。
+
+    与布局 widget_usage_4x2.xml 一一对应：行1 = 套餐名 + tokens + 更新时间（共用一行），
+    行2/3/4 = 5 小时 / 每周 / 每月，三行按 layout_weight=1 均分剩余高度。
+    """
     img, draw = new_card(300, 110)
     pad = dp(12)
 
     f_plan = font(BOLD, 11)
     f_stamp = font(REGULAR, 9)
-    f_label = font(REGULAR, 9)
-    f_value = font(BOLD, 14)
-    f_tokens = font(BOLD, 19)
+    f_tokens = font(BOLD, 12)
+    f_caption = font(REGULAR, 8)
+    f_label = font(REGULAR, 10)
+    f_value = font(BOLD, 13)
 
-    # 行1：套餐名 + 更新时间
+    # 行1：套餐名（左）；tokens 数值 + 口径说明 + 更新时间（右）
     draw.text((pad, pad), "Go", font=f_plan, fill=TEXT_PRIMARY)
-    stamp = "22:41"
-    w, _ = text_width(draw, stamp, f_stamp)
-    draw.text((img.width - pad - w, pad + dp(2)), stamp, font=f_stamp, fill=TEXT_SECONDARY)
 
-    # 行2：三个窗口（已用% + 进度条），列宽 = 内容宽 / 3
+    stamp = "08:29"
+    sw, _ = text_width(draw, stamp, f_stamp)
+    draw.text((img.width - pad - sw, pad + dp(2)), stamp, font=f_stamp, fill=TEXT_TERTIARY)
+
+    caption = "本期 tokens"
+    cw, _ = text_width(draw, caption, f_caption)
+    caption_left = img.width - pad - sw - dp(6) - cw
+    draw.text((caption_left, pad + dp(3)), caption, font=f_caption, fill=TEXT_SECONDARY)
+
+    tokens = "607.8M"
+    tw, _ = text_width(draw, tokens, f_tokens)
+    draw.text((caption_left - dp(3) - tw, pad + dp(1)), tokens, font=f_tokens, fill=TEXT_PRIMARY)
+
+    # 行2-4：三个窗口竖排，均分剩余高度（对应 layout_weight=1）
+    rows_top = pad + dp(15) + dp(4)
+    row_h = (img.height - pad - rows_top) // 3
+
+    # 取值与 make_4x4 保持一致，便于对照。刻意**不用 0%**：0% 画出来就是一条空轨道，
+    # 在缩略图里会被误读成「进度条坏了」——正是这一版要修的那个毛病。
     windows = [("5 小时", 7), ("每周", 31), ("每月", 77)]
-    content_w = img.width - pad * 2
-    col_gap = dp(6)
-    col_w = (content_w - col_gap * 2) // 3
-    band_top = pad + dp(16)
-
     for index, (label, used) in enumerate(windows):
-        cx = pad + index * (col_w + col_gap) + col_w / 2
-        draw_centered(draw, cx, band_top, label, f_label, TEXT_SECONDARY)
-        draw_centered(draw, cx, band_top + dp(11), f"{used}%", f_value, utilization_color(used))
-        draw_bar(
-            draw,
-            pad + index * (col_w + col_gap),
-            band_top + dp(31),
-            col_w,
-            dp(4),
-            used,
-            utilization_color(used),
-        )
+        text_top = rows_top + index * row_h + dp(3)
+        color = utilization_color(used)
 
-    # 行3：本期 tokens
-    tokens_top = img.height - pad - dp(19)
-    draw.text((pad, tokens_top), "233.4M", font=f_tokens, fill=TEXT_PRIMARY)
-    w, _ = text_width(draw, "233.4M", f_tokens)
-    draw.text((pad + w + dp(5), tokens_top + dp(7)), "本期 tokens", font=f_label, fill=TEXT_SECONDARY)
+        # 名称（左，次要色）
+        draw.text((pad, text_top), label, font=f_label, fill=TEXT_SECONDARY)
+
+        # 已用%（右，按档位着色）
+        pct = f"{used}%"
+        pw, _ = text_width(draw, pct, f_value)
+        draw.text((img.width - pad - pw, text_top - dp(1)), pct, font=f_value, fill=color)
+
+        # 通栏进度条（同色）
+        draw_bar(draw, pad, text_top + dp(16), img.width - pad * 2, dp(3), used, color)
+
     return img
 
 

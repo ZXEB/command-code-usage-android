@@ -63,8 +63,18 @@ object WidgetText {
     // 进度条
     // ------------------------------------------------------------------
 
-    /** 进度条进度值（0..100）：与上方数字同源（都是已用比例）。未知时为 0。 */
-    fun barProgress(window: RateWindow?): Int = usedPercent(window) ?: 0
+    /**
+     * 进度条进度值（0..100）：与上方数字同源（都是已用比例）。未知时为 0。
+     *
+     * 直接接受百分比的重载：2×2 的大字进度条走的是额度池口径的 `usagePercent`，
+     * 手里没有 `RateWindow`。参数名不叫 `usedPercent`，否则会和上面那个函数重名。
+     *
+     * 返回 0 不代表「没用过」——它只表示条该画多长，未知时由 [barVisible] 决定**隐藏**。
+     */
+    fun barProgress(percent: Double?): Int = usedPercent(percent) ?: 0
+
+    /** 窗口的进度条进度值。 */
+    fun barProgress(window: RateWindow?): Int = barProgress(window?.percent)
 
     /**
      * 进度条是否可见。

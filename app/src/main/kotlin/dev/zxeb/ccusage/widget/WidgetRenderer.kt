@@ -39,12 +39,15 @@ object WidgetRenderer {
      */
     private const val ROOT_ID = android.R.id.background
 
-    /** 尺寸档位。4×4 是详细版（三个窗口卡片），4×2 / 2×2 是紧凑版。 */
+    /** 进度条分母。进度值本身就是 0..100 的百分比，所以最大刻度固定 100。 */
+    private const val BAR_MAX = 100
+
+    /** 尺寸档位。4×4 是详细版，4×2 / 2×2 是紧凑版；三者都是竖排窗口行。 */
     enum class Size {
-        /** 4×4（300×250dp）：三个窗口各一张卡片。 */
+        /** 4×4（250×250dp）：三个窗口各一张卡片，带剩余与重置明细。 */
         FULL,
 
-        /** 4×2（300×110dp）：三个窗口并排一列摘要。 */
+        /** 4×2（300×110dp）：三个窗口竖排一行一个，通栏进度条。 */
         WIDE,
 
         /** 2×2（110×110dp）：月度大字 + 5 小时/每周摘要。 */
@@ -159,7 +162,7 @@ object WidgetRenderer {
     )
 
     // ------------------------------------------------------------------
-    // 4×2：三个窗口并排（保留原紧凑形态），口径同样改为「已用」
+    // 4×2：三个窗口竖排（一行一个：名称 + 已用% + 通栏进度条）
     // ------------------------------------------------------------------
 
     private fun renderWide(
@@ -173,13 +176,21 @@ object WidgetRenderer {
 
         bindWideColumn(context, views, snapshot.fiveHour, R.id.widget_fivehour, R.id.widget_bar_fivehour)
         bindWideColumn(context, views, snapshot.weekly, R.id.widget_weekly, R.id.widget_bar_weekly)
-        bindWideColumn(context, views, snapshot.monthly, R.id.widget_monthly, R.id.widget_bar_monthly)
+        // 与 4×4 同样回落：服务端通常不给 monthly，此时用额度池口径合成，
+        // 否则这一行会恒为「--」，而它恰恰是最需要看的那个数字。
+        bindWideColumn(
+            context,
+            views,
+            snapshot.monthly ?: pooledMonthlyWindow(snapshot),
+            R.id.widget_monthly,
+            R.id.widget_bar_monthly,
+        )
 
         views.setTextViewText(R.id.widget_tokens, Format.millions(snapshot.tokensTotal))
         views.setTextViewText(R.id.widget_tokens_label, WidgetText.tokensCaption(snapshot.tokenBasis))
     }
 
-    /** 4×2 的单列：已用% + 进度条（数据缺失隐藏条，不画 0%）。 */
+    /** 4×2 的单行：已用% + 进度条（数据缺失隐藏条，不画 0%）。 */
     private fun bindWideColumn(
         context: Context,
         views: RemoteViews,
@@ -189,6 +200,7 @@ object WidgetRenderer {
     ) {
         val color = context.getColor(WidgetText.colorRes(WidgetText.utilization(window)))
         views.setTextViewText(valueId, WidgetText.usedPercentText(window))
+        setBarProgress(views, barId, WidgetText.barProgress(window))
         tintBar(views, barId, window)
         views.setViewVisibility(barId, if (WidgetText.barVisible(window)) View.VISIBLE else View.INVISIBLE)
         runCatching { views.setTextColor(valueId, color) }
@@ -215,6 +227,7 @@ object WidgetRenderer {
         val color = context.getColor(WidgetText.colorRes(WidgetText.utilizationOf(usedPercent)))
 
         views.setTextViewText(R.id.widget_percent, WidgetText.usedPercentText(usedPercent))
+        setBarProgress(views, R.id.widget_monthly_progress, WidgetText.barProgress(usedPercent))
         tintBarValue(views, R.id.widget_monthly_progress, usedPercent)
         views.setViewVisibility(
             R.id.widget_monthly_progress,
@@ -254,6 +267,7 @@ object WidgetRenderer {
         runCatching { views.setTextColor(ids.percentId, color) }
 
         tintBar(views, ids.barId, window)
+        setBarProgress(views, ids.barId, WidgetText.barProgress(window))
         views.setViewVisibility(ids.barId, if (WidgetText.barVisible(window)) View.VISIBLE else View.INVISIBLE)
 
         views.setTextViewText(ids.remainingId, WidgetText.remainingLine(window))
@@ -287,6 +301,28 @@ object WidgetRenderer {
         runCatching {
             views.setColorStateList(barId, "setProgressTintList", colorRes)
         }.onFailure { Log.w(TAG, "进度条上色失败（不影响渲染）: ${it.message}") }
+    }
+
+    /**
+     * 下发进度条的实际进度（同时把 max 也写死成 100）。
+     *
+     * **必须显式写值**：布局里的 `android:progress="0"` 只是初值，`RemoteViews` 在桌面上
+     * 只应用「布局自身 + 渲染器下发的动作」。不写这个动作，条就永远是 0%，桌面上只看得见
+     * 灰色轨道 —— 这正是旧版「数字正常、进度条是空条」的原因。
+     *
+     * 用 `RemoteViews.setProgressBar`（**公开 API，API 1 起**，见 AOSP `core/api/current.txt`
+     * 中 RemoteViews 的成员表）。它的方法体就是
+     * `setIndeterminate` + `setMax` + `setProgress` 三个 `setInt`，
+     * 而 `ProgressBar` 上这三个方法都带 `@android.view.RemotableViewMethod`
+     * （`RemoteViews` 在 apply 时会**校验**该标注，缺失就抛 `ActionException`），所以完全可用。
+     * 它比自己调 `setInt(id, "setProgress", n)` 更完整：顺带把 max 也固定住，
+     * 不再依赖各布局是否声明了 `android:max="100"`。
+     *
+     * 这里**不包 runCatching**（与上面上色不同）：进度条画不出来是必须暴露的故障，
+     * 静默降级只会让「空条」这种问题再次潜伏到线上。
+     */
+    private fun setBarProgress(views: RemoteViews, barId: Int, progress: Int) {
+        views.setProgressBar(barId, BAR_MAX, progress.coerceIn(0, BAR_MAX), false)
     }
 
     private fun defaultTitle(ids: WindowViewIds): String = when (ids) {

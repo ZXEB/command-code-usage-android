@@ -114,6 +114,17 @@ class WidgetTextTest {
         assertFalse(WidgetText.barVisible(null))
     }
 
+    @Test
+    fun `bar progress accepts a raw percentage for the 2x2 big bar`() {
+        // 2×2 的月度大字进度条手里只有 usagePercent（额度池口径），没有 RateWindow，
+        // 走 Double 重载；口径必须与窗口重载一致（同样截断、同样 0..100）
+        assertEquals(2, WidgetText.barProgress(2.4))
+        assertEquals(87, WidgetText.barProgress(87.9))
+        assertEquals(0, WidgetText.barProgress(0.0))
+        assertEquals(100, WidgetText.barProgress(100.0))
+        assertEquals(0, WidgetText.barProgress(null as Double?))
+    }
+
     // ------------------------------------------------------------------
     // 配色阈值
     // ------------------------------------------------------------------
